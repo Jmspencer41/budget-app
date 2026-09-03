@@ -1,0 +1,16 @@
+# secrets
+.env
+*.env.local
+
+# build output
+target/
+
+# IDE
+.settings/
+.classpath
+.project
+.metadata/
+bin/
+
+# OS
+.DS_Store

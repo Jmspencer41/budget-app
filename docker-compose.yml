@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16          # official Postgres image, version pinned
+    container_name: budget-db
+    environment:
+      POSTGRES_DB: budgetapp
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"              # exposes Postgres to your host machine for local dev
+    volumes:
+      - db_data:/var/lib/postgresql/data   # persists data outside the container
+
+volumes:
+  db_data:
