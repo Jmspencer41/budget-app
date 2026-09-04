@@ -12,7 +12,6 @@ public class Budget {
     @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false)
     private String title;
 
     @Column(name = "owner_id", nullable = false)
@@ -29,6 +28,9 @@ public class Budget {
     
     public UUID getOwnerId() { return ownerId; }
     public void setOwnerId(UUID ownerId) { this.ownerId = ownerId; } 
+    
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     
     
 }

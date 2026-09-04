@@ -16,6 +16,6 @@ public class BudgetService {
 		Budget budget = new Budget();
 		budget.setTitle(title);
 		budget.setOwnerId(ownerId);
-		return budget;
+		return budgetRepository.save(budget);
 	}
 }
