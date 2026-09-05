@@ -17,7 +17,7 @@ public class BudgetController {
     public BudgetResponse createBudget(@Valid @RequestBody CreateBudgetRequest request) {
         Budget budget = budgetService.createBudget(
             request.title(), request.ownerId()
-        );
+        	);
         return BudgetResponse.fromEntity(budget);
     }
 }

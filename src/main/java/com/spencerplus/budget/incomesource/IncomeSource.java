@@ -1,4 +1,4 @@
-package com.spencerplus.budget.incomesources;
+package com.spencerplus.budget.incomesource;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -6,8 +6,8 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
-@Table(name = "income_sources")
-public class IncomeSources {
+@Table(name = "income_source")
+public class IncomeSource {
 
     @Id
     @GeneratedValue
@@ -58,6 +58,9 @@ public class IncomeSources {
     
     public Frequency getFrequency() { return frequency; }
     public void setFrequency( Frequency frequency) { this.frequency = frequency; }
+    
+    public boolean isAutoGenerate() { return autoGenerate; }
+    public void setAutoGenerate( boolean autoGenerate ) { this.autoGenerate = autoGenerate; }
     
     public LocalDate getNextPayDate() { return nextPayDate; }
     public void setNextPayDate(LocalDate nextPayDate) { this.nextPayDate = nextPayDate; }

@@ -1,4 +1,4 @@
-CREATE TABLE income_sources (
+CREATE TABLE income_source (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id),
     budget_id UUID NOT NULL REFERENCES budgets(id),
