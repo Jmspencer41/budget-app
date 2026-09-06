@@ -2,9 +2,7 @@ package com.spencerplus.budget.incomesource;
 
 import java.time.LocalDate;
 import java.util.UUID;
-
 import com.spencerplus.budget.incomesource.IncomeSource.Frequency;
-
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;

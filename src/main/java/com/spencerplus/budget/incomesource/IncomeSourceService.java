@@ -3,7 +3,6 @@ package com.spencerplus.budget.incomesource;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-
 import com.spencerplus.budget.incomesource.IncomeSource.Frequency;
 
 @Service
