@@ -9,13 +9,14 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "budget")
+@Table(name = "budgets")
 public class Budget {
 
     @Id
     @GeneratedValue
     private UUID id;
 
+    @Column(nullable = false)
     private String title;
 
     @Column(name = "owner_id", nullable = false)
