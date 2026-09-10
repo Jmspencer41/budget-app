@@ -5,7 +5,6 @@ import com.spencerplus.budget.category.Category.CategoryType;
 import com.spencerplus.budget.category.Category.Frequency;
 import com.spencerplus.budget.transaction.Transaction;
 import com.spencerplus.budget.transaction.TransactionRepository;
-
 import java.util.List;
 import java.util.UUID;
 
@@ -41,7 +40,10 @@ public class CategoryService {
         }
         
         return category.getAmountCents() - totalSpent;
-        
+	}
+	
+	public List<Category> getCategoriesForBudget(UUID budgetId) {
+		return categoryRepository.findByBudgetId(budgetId);
 	}
 
 }

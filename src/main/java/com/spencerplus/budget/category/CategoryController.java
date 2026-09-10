@@ -1,7 +1,8 @@
 package com.spencerplus.budget.category;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
-
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,6 +36,17 @@ public class CategoryController {
 	@GetMapping("/{id}/remaining")
 	public long getRemainingAmount(@PathVariable UUID id) {
 	    return categoryService.getRemainingAmount(id);
+	}
+	
+	@GetMapping("budget/{budgetId}")
+	public List<CategoryResponse> getCategoriesForBudget(@PathVariable UUID budgetId) {
+		List<Category> categories = categoryService.getCategoriesForBudget(budgetId);
+		List<CategoryResponse> response = new ArrayList<>();
+		
+		for (Category category : categories) {
+			response.add(CategoryResponse.fromEntity(category));
+		}
+		return response;
 	}
 	
 }

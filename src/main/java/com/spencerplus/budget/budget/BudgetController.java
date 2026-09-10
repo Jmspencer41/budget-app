@@ -1,6 +1,7 @@
 package com.spencerplus.budget.budget;
 
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,4 +21,15 @@ public class BudgetController {
         	);
         return BudgetResponse.fromEntity(budget);
     }
+    
+    @GetMapping("{id}/total")
+    public long getTotal(@PathVariable UUID id) {
+    	return budgetService.getTotal(id);
+    }
+    
+    @GetMapping("{id}/remaining")
+    public long getRemainingBalance(@PathVariable UUID id) {
+    	return budgetService.getRemainingBalance(id);
+    }
+    
 }

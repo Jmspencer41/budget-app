@@ -1,8 +1,8 @@
 package com.spencerplus.budget.transaction;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
-
 import org.springframework.stereotype.Service;
 
 @Service
@@ -24,4 +24,9 @@ public class TransactionService {
 		transaction.setTransactionDate(transactionDate);
 		return transactionRepository.save(transaction);
 	}
+	
+	public List<Transaction> getTransactionForCategory(UUID categoryId) {
+		return transactionRepository.findByCategoryId(categoryId);
+	}
+	
 }
