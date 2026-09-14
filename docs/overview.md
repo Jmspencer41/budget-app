@@ -10,8 +10,7 @@ spending underneath that shared budget.
  
 The application is self-hosted. It is built to run in Docker containers,
 deployed with Docker Compose, and reverse proxied through Nginx Proxy
-Manager behind Cloudflare, consistent with the rest of the Spencer+
-infrastructure. The initial deployment will be available at
+Manager behind Cloudflare, The initial deployment will be available at
 `budget.spencerplus.com`.
  
 ## Goals
@@ -110,8 +109,7 @@ behind a reverse proxy:
 Docker Compose is used to run these containers together in development and
 in production. Nginx Proxy Manager handles the reverse proxy, routing
 `budget.spencerplus.com` to the app container, with Cloudflare providing
-DNS and network-level protection, consistent with the rest of the
-Spencer+ homelab.
+DNS and network-level protection
  
 Once a stable release is ready, the application image will be published to
 a public container registry so that other users can self-host it with
