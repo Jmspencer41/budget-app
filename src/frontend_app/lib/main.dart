@@ -225,23 +225,36 @@ enum CategoryKind { recurringLimit, savingsGoal }
 
 extension CategoryKindLabel on CategoryKind {
   String get label => this == CategoryKind.recurringLimit ? 'Recurring limit' : 'Savings goal';
-  String get amountLabel => this == CategoryKind.recurringLimit ? 'Spent so far' : 'Saved so far';
   String get targetLabel => this == CategoryKind.recurringLimit ? 'Limit' : 'Goal amount';
+}
+
+class BudgetTransaction {
+  final String merchant;
+  final double amount;
+  final DateTime date;
+
+  const BudgetTransaction({
+    required this.merchant,
+    required this.amount,
+    required this.date,
+  });
 }
 
 class BudgetCategory {
   String name;
   CategoryKind kind;
   double limitOrGoal;
-  double current; // spent (limit) or saved (goal) so far
+  final List<BudgetTransaction> transactions;
 
   BudgetCategory({
     required this.name,
     required this.kind,
     required this.limitOrGoal,
-    required this.current,
-  });
+    List<BudgetTransaction>? transactions,
+  }) : transactions = transactions ?? [];
 
+  double get current => transactions.fold(0.0, (sum, transaction) => sum + transaction.amount);
+  double get remaining => limitOrGoal - current;
   double get fraction => (limitOrGoal == 0) ? 0 : (current / limitOrGoal).clamp(0, 1.4);
   bool get isOver => kind == CategoryKind.recurringLimit && current > limitOrGoal;
 }
@@ -265,7 +278,6 @@ class Budget {
       .where((c) => c.kind == CategoryKind.recurringLimit)
       .fold(0.0, (sum, c) => sum + c.current);
 }
-
 enum IncomeFrequency { manual, weekly, biweekly, monthly }
 
 extension IncomeFrequencyLabel on IncomeFrequency {
@@ -315,25 +327,25 @@ class MockData {
           name: 'Groceries',
           kind: CategoryKind.recurringLimit,
           limitOrGoal: 600,
-          current: 512.40,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 512.40, date: DateTime.now())],
         ),
         BudgetCategory(
           name: 'Utilities',
           kind: CategoryKind.recurringLimit,
           limitOrGoal: 220,
-          current: 238.10,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 238.10, date: DateTime.now())],
         ),
         BudgetCategory(
           name: 'Dining out',
           kind: CategoryKind.recurringLimit,
           limitOrGoal: 150,
-          current: 96.75,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 96.75, date: DateTime.now())],
         ),
         BudgetCategory(
           name: 'Emergency fund',
           kind: CategoryKind.savingsGoal,
           limitOrGoal: 5000,
-          current: 3180,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 3180, date: DateTime.now())],
         ),
       ],
     ),
@@ -348,19 +360,19 @@ class MockData {
           name: 'Flights',
           kind: CategoryKind.savingsGoal,
           limitOrGoal: 1800,
-          current: 1800,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 1800, date: DateTime.now())],
         ),
         BudgetCategory(
           name: 'Lodging',
           kind: CategoryKind.savingsGoal,
           limitOrGoal: 1200,
-          current: 640,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 640, date: DateTime.now())],
         ),
         BudgetCategory(
           name: 'Spending money',
           kind: CategoryKind.recurringLimit,
           limitOrGoal: 100,
-          current: 0,
+          transactions: [BudgetTransaction(merchant: 'Opening balance', amount: 0, date: DateTime.now())],
         ),
       ],
     ),
@@ -903,8 +915,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         category
           ..name = result.name
           ..kind = result.kind
-          ..limitOrGoal = result.limitOrGoal
-          ..current = result.current;
+          ..limitOrGoal = result.limitOrGoal;
       });
       widget.onChanged();
     }
@@ -989,15 +1000,12 @@ class _CategoryDialogState extends State<_CategoryDialog> {
   late final _nameController = TextEditingController(text: widget.existing?.name ?? '');
   late final _targetController =
   TextEditingController(text: widget.existing == null ? '' : widget.existing!.limitOrGoal.toStringAsFixed(2));
-  late final _currentController =
-  TextEditingController(text: widget.existing == null ? '' : widget.existing!.current.toStringAsFixed(2));
   late CategoryKind _kind = widget.existing?.kind ?? CategoryKind.recurringLimit;
 
   @override
   void dispose() {
     _nameController.dispose();
     _targetController.dispose();
-    _currentController.dispose();
     super.dispose();
   }
 
@@ -1030,12 +1038,6 @@ class _CategoryDialogState extends State<_CategoryDialog> {
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(labelText: _kind.targetLabel, prefixText: '\$'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _currentController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: _kind.amountLabel, prefixText: '\$'),
-            ),
           ],
         ),
       ),
@@ -1045,14 +1047,12 @@ class _CategoryDialogState extends State<_CategoryDialog> {
           style: FilledButton.styleFrom(backgroundColor: AppColors.moss),
           onPressed: () {
             final target = double.tryParse(_targetController.text) ?? 0;
-            final current = double.tryParse(_currentController.text) ?? 0;
             if (_nameController.text.trim().isEmpty || target <= 0) return;
             Navigator.of(context).pop(
               BudgetCategory(
                 name: _nameController.text.trim(),
                 kind: _kind,
                 limitOrGoal: target,
-                current: current,
               ),
             );
           },
