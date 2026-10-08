@@ -45,7 +45,9 @@ class IncomeScreen extends StatelessWidget {
           ),
         ),
         const SliverToBoxAdapter(
-          child: EmptyNote('Paychecks repeat on a schedule. Side hustles stay at zero until you log what came in.'),
+          child: EmptyNote(
+            'Automatic income repeats on a schedule. Manual income, like a side hustle, stays at zero until you log it.',
+          ),
         ),
         if (ledger.incomes.isEmpty)
           const SliverToBoxAdapter(child: EmptyNote('No income yet.')),
@@ -85,7 +87,7 @@ class IncomeRow extends StatelessWidget {
   });
 
   Future<void> _open(BuildContext context) async {
-    if (source.kind == IncomeKind.sideHustle) {
+    if (!source.kind.isAutomatic) {
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => SideHustleScreen(ledger: ledger, source: source),
@@ -116,10 +118,10 @@ class IncomeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final isPaycheck = source.kind == IncomeKind.paycheck;
+    final isPaycheck = source.kind.isAutomatic;
     final subtitle = isPaycheck
         ? '$budgetName · ${source.frequency?.label ?? 'Monthly'} · ${money(source.expectedDuring(now))} / month'
-        : '$budgetName · Side hustle · ${money(source.expectedDuring(now))} this month';
+        : '$budgetName · Manual · ${money(source.expectedDuring(now))} this month';
     final amount = isPaycheck ? source.paycheckAmount : source.totalLogged;
 
     return InkWell(

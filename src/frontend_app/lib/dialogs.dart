@@ -5,15 +5,17 @@ import 'ledger.dart';
 import 'models.dart';
 import 'theme.dart';
 
-Future<Budget?> showCreateBudgetDialog(BuildContext context) {
+Future<Budget?> showCreateBudgetDialog(BuildContext context, {required String ownerName}) {
   return showDialog<Budget>(
     context: context,
-    builder: (_) => const _CreateBudgetDialog(),
+    builder: (_) => _CreateBudgetDialog(ownerName: ownerName),
   );
 }
 
 class _CreateBudgetDialog extends StatefulWidget {
-  const _CreateBudgetDialog();
+  final String ownerName;
+
+  const _CreateBudgetDialog({required this.ownerName});
 
   @override
   State<_CreateBudgetDialog> createState() => _CreateBudgetDialogState();
@@ -36,7 +38,7 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
   void _addMember() {
     final name = _memberController.text.trim();
     if (name.isEmpty) return;
-    final taken = name.toLowerCase() == ownerName.toLowerCase() ||
+    final taken = name.toLowerCase() == widget.ownerName.toLowerCase() ||
         _members.any((member) => member.name.toLowerCase() == name.toLowerCase());
     if (taken) {
       setState(() => _error = '$name is already on this budget.');
@@ -68,9 +70,9 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
             const SizedBox(height: 16),
             const Text('People', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
             const SizedBox(height: 4),
-            const Text(
-              'You are the owner. Add anyone else who should see this budget.',
-              style: TextStyle(fontSize: 12, color: AppColors.inkFade),
+            Text(
+              '${widget.ownerName} is the owner. Add anyone else who should work on this budget.',
+              style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
             ),
             const SizedBox(height: 8),
             Row(
@@ -134,8 +136,8 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
               Budget(
                 id: newId(),
                 name: name,
-                members: [const Member(ownerName, BudgetRole.owner), ..._members],
-                expenses: [],
+                members: [Member(widget.ownerName, BudgetRole.owner), ..._members],
+                categories: [],
               ),
             );
           },
@@ -218,6 +220,118 @@ class _AddMemberDialogState extends State<_AddMemberDialog> {
               return;
             }
             Navigator.of(context).pop(Member(name, _role));
+          },
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+}
+
+Future<BudgetCategory?> showCategoryDialog(BuildContext context) {
+  return showDialog<BudgetCategory>(
+    context: context,
+    builder: (_) => const _CategoryDialog(),
+  );
+}
+
+class _CategoryDialog extends StatefulWidget {
+  const _CategoryDialog();
+
+  @override
+  State<_CategoryDialog> createState() => _CategoryDialogState();
+}
+
+class _CategoryDialogState extends State<_CategoryDialog> {
+  final _nameController = TextEditingController();
+  final _amountController = TextEditingController();
+  CategoryKind _kind = CategoryKind.recurring;
+  PayFrequency _frequency = PayFrequency.monthly;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recurring = _kind == CategoryKind.recurring;
+    return AlertDialog(
+      title: const Text('Add category'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const Key('category-name-field'),
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Category name'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<CategoryKind>(
+              initialValue: _kind,
+              decoration: const InputDecoration(labelText: 'Type'),
+              items: CategoryKind.values
+                  .map((kind) => DropdownMenuItem(value: kind, child: Text(kind.label)))
+                  .toList(),
+              onChanged: (kind) => setState(() => _kind = kind ?? _kind),
+            ),
+            if (recurring) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<PayFrequency>(
+                initialValue: _frequency,
+                decoration: const InputDecoration(labelText: 'Limit resets'),
+                items: PayFrequency.values
+                    .map((frequency) => DropdownMenuItem(value: frequency, child: Text(frequency.label)))
+                    .toList(),
+                onChanged: (frequency) => setState(() => _frequency = frequency ?? _frequency),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('category-amount-field'),
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: _kind.targetLabel, prefixText: '\$'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              recurring
+                  ? 'Expenses in this category count against the limit.'
+                  : 'Amounts you add count toward the savings goal.',
+              style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: AppColors.rust, fontSize: 12)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () {
+            final name = _nameController.text.trim();
+            final amount = parseMoney(_amountController.text);
+            if (name.isEmpty || amount == null || amount <= 0) {
+              setState(() => _error = 'Enter a name and an amount greater than zero.');
+              return;
+            }
+            Navigator.of(context).pop(
+              BudgetCategory(
+                id: newId(),
+                name: name,
+                kind: _kind,
+                frequency: _frequency,
+                target: amount,
+              ),
+            );
           },
           child: const Text('Add'),
         ),
@@ -388,12 +502,12 @@ class _IncomeDialogState extends State<_IncomeDialog> {
                 spacing: 8,
                 children: [
                   ChoiceChip(
-                    label: const Text('Paycheck'),
+                    label: const Text('Automatic'),
                     selected: _isPaycheck,
                     onSelected: (_) => setState(() => _kind = IncomeKind.paycheck),
                   ),
                   ChoiceChip(
-                    label: const Text('Side hustle'),
+                    label: const Text('Manual'),
                     selected: !_isPaycheck,
                     onSelected: (_) => setState(() => _kind = IncomeKind.sideHustle),
                   ),
@@ -402,8 +516,8 @@ class _IncomeDialogState extends State<_IncomeDialog> {
               const SizedBox(height: 8),
               Text(
                 _isPaycheck
-                    ? 'A set amount that repeats weekly, every two weeks, or monthly.'
-                    : 'Money you log by hand whenever this brings something in.',
+                    ? 'A set amount that is counted automatically each week, every two weeks, or month.'
+                    : 'A side hustle or other income you update by logging what came in.',
                 style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
               ),
               const SizedBox(height: 12),

@@ -13,7 +13,7 @@ class BudgetsScreen extends StatelessWidget {
   const BudgetsScreen({super.key, required this.ledger});
 
   Future<void> _create(BuildContext context) async {
-    final budget = await showCreateBudgetDialog(context);
+    final budget = await showCreateBudgetDialog(context, ownerName: ledger.ownerLabel);
     if (budget != null) ledger.addBudget(budget);
   }
 
@@ -41,7 +41,9 @@ class BudgetsScreen extends StatelessWidget {
           ),
         ),
         const SliverToBoxAdapter(
-          child: EmptyNote('A budget is a shared place for spending. Expenses you add count toward its total.'),
+          child: EmptyNote(
+            'A shared budget holds categories. A category is a recurring limit or a savings goal.',
+          ),
         ),
         if (budgets.isEmpty)
           const SliverToBoxAdapter(child: EmptyNote('No budgets yet. Create one to get started.')),
@@ -76,8 +78,14 @@ class BudgetsScreen extends StatelessWidget {
                     ),
                   ),
                   trailing: Text(
-                    money(budget.totalSpent),
-                    style: ledgerNumber(size: 13),
+                    '${money(budget.totalSpent)}\n/ ${money(budget.totalLimit)}',
+                    textAlign: TextAlign.right,
+                    style: ledgerNumber(
+                      size: 13,
+                      color: budget.totalSpent > budget.totalLimit && budget.totalLimit > 0
+                          ? AppColors.rust
+                          : AppColors.ink,
+                    ),
                   ),
                   onTap: () {
                     Navigator.of(context).push(
@@ -132,9 +140,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     setState(() {});
   }
 
-  Future<void> _addExpense() async {
-    final expense = await showExpenseDialog(context);
-    if (expense != null) ledger.addExpense(budget.id, expense);
+  Future<void> _addCategory() async {
+    final category = await showCategoryDialog(context);
+    if (category != null) ledger.addCategory(budget.id, category);
   }
 
   Future<void> _addMember() async {
@@ -152,7 +160,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete budget'),
-        content: Text('Delete ${budget.name}? Its expenses and income will be removed too.'),
+        content: Text('Delete ${budget.name}? Its categories, expenses, and income will be removed too.'),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
           FilledButton(
@@ -190,9 +198,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('In this budget', style: TextStyle(color: AppColors.inkFade)),
+                    const Text('Spent against limits', style: TextStyle(color: AppColors.inkFade)),
                     const SizedBox(height: 4),
-                    Text(money(budget.totalSpent), style: ledgerNumber(size: 28)),
+                    Text(
+                      '${money(budget.totalSpent)} / ${money(budget.totalLimit)}',
+                      style: ledgerNumber(size: 28),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '${money(budget.spentDuring(now))} this month',
@@ -204,47 +215,67 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             ),
             SliverToBoxAdapter(
               child: SectionHeader(
-                title: 'Expenses',
-                onAdd: _addExpense,
-                addKey: const Key('add-expense'),
+                title: 'Categories',
+                onAdd: _addCategory,
+                addKey: const Key('add-category'),
               ),
             ),
-            if (budget.expenses.isEmpty)
+            if (budget.categories.isEmpty)
               const SliverToBoxAdapter(
-                child: EmptyNote('Nothing spent yet. Add an expense and it counts toward the total above.'),
+                child: EmptyNote('Add a recurring limit or a savings goal, then log amounts that count toward it.'),
               ),
             SliverList.builder(
-              itemCount: budget.expenses.length,
+              itemCount: budget.categories.length,
               itemBuilder: (context, index) {
-                final expense = budget.expenses[index];
+                final category = budget.categories[index];
+                final isGoal = category.kind == CategoryKind.goal;
+                final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
                 return Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => CategoryScreen(
+                              ledger: ledger,
+                              budget: budget,
+                              category: category,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                Text(expense.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                Expanded(
+                                  child: Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                ),
                                 Text(
-                                  dateShort(expense.date),
-                                  style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+                                  '${money(category.current)} / ${money(category.target)}',
+                                  style: ledgerNumber(size: 13, color: color),
+                                ),
+                                RowAction(
+                                  icon: Icons.close,
+                                  color: AppColors.rust,
+                                  onTap: () => ledger.removeCategory(budget.id, category.id),
                                 ),
                               ],
                             ),
-                          ),
-                          Text(money(expense.amount), style: ledgerNumber(size: 14)),
-                          RowAction(
-                            icon: Icons.close,
-                            color: AppColors.rust,
-                            onTap: () => ledger.removeExpense(budget.id, expense.id),
-                          ),
-                        ],
+                            Text(
+                              isGoal ? 'Savings goal' : '${category.kind.label} · ${category.frequency.label}',
+                              style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+                            ),
+                            const SizedBox(height: 6),
+                            FillBar(fraction: category.fraction, color: color),
+                          ],
+                        ),
                       ),
                     ),
-                    if (index != budget.expenses.length - 1)
+                    if (index != budget.categories.length - 1)
                       const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Hairline()),
                   ],
                 );
@@ -289,7 +320,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             ),
             if (sources.isEmpty)
               const SliverToBoxAdapter(
-                child: EmptyNote('Paychecks and side hustles on this budget show up here.'),
+                child: EmptyNote('Automatic paychecks and manual income on this budget show up here.'),
               ),
             SliverList.builder(
               itemCount: sources.length,
@@ -303,6 +334,143 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               },
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 32)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryScreen extends StatefulWidget {
+  final Ledger ledger;
+  final Budget budget;
+  final BudgetCategory category;
+
+  const CategoryScreen({
+    super.key,
+    required this.ledger,
+    required this.budget,
+    required this.category,
+  });
+
+  @override
+  State<CategoryScreen> createState() => _CategoryScreenState();
+}
+
+class _CategoryScreenState extends State<CategoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    widget.ledger.addListener(_onLedger);
+  }
+
+  @override
+  void dispose() {
+    widget.ledger.removeListener(_onLedger);
+    super.dispose();
+  }
+
+  void _onLedger() {
+    if (!mounted) return;
+    final stillThere = widget.budget.categories.contains(widget.category);
+    if (!stillThere || !widget.ledger.budgets.contains(widget.budget)) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {});
+  }
+
+  Future<void> _addExpense() async {
+    final expense = await showExpenseDialog(context);
+    if (expense != null) {
+      widget.ledger.addExpense(widget.budget.id, widget.category.id, expense);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final category = widget.category;
+    final isGoal = category.kind == CategoryKind.goal;
+    final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
+    return Scaffold(
+      appBar: AppBar(title: Text(category.name)),
+      body: SpaceBackground(
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isGoal ? 'Toward the goal' : 'Counted against the limit',
+                      style: const TextStyle(color: AppColors.inkFade),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${money(category.current)} / ${money(category.target)}',
+                      style: ledgerNumber(size: 28, color: color),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isGoal
+                          ? '${money(category.remaining)} left to save'
+                          : '${money(category.remaining)} left · ${category.frequency.label}',
+                      style: TextStyle(color: category.isOver ? AppColors.rust : AppColors.inkFade, fontSize: 13),
+                    ),
+                    const SizedBox(height: 10),
+                    FillBar(fraction: category.fraction, color: color),
+                  ],
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                title: isGoal ? 'Contributions' : 'Expenses',
+                onAdd: _addExpense,
+                addKey: const Key('add-expense'),
+              ),
+            ),
+            if (category.expenses.isEmpty)
+              SliverToBoxAdapter(
+                child: EmptyNote(
+                  isGoal
+                      ? 'Nothing saved yet. Add an amount and it counts toward the goal.'
+                      : 'Nothing spent yet. Add an expense and it counts against the limit.',
+                ),
+              ),
+            SliverList.builder(
+              itemCount: category.expenses.length,
+              itemBuilder: (context, index) {
+                final expense = category.expenses[index];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(expense.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text(
+                              dateShort(expense.date),
+                              style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(money(expense.amount), style: ledgerNumber(size: 14, color: color)),
+                      RowAction(
+                        icon: Icons.close,
+                        color: AppColors.rust,
+                        onTap: () => widget.ledger.removeExpense(widget.budget.id, category.id, expense.id),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),

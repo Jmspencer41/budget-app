@@ -255,6 +255,28 @@ class RowAction extends StatelessWidget {
   }
 }
 
+class FillBar extends StatelessWidget {
+  final double fraction;
+  final Color color;
+
+  const FillBar({super.key, required this.fraction, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = fraction.clamp(0.0, 1.0).toDouble();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            Container(height: 3, color: AppColors.hairline),
+            Container(height: 3, width: constraints.maxWidth * clamped, color: color),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class EmptyNote extends StatelessWidget {
   final String text;
 

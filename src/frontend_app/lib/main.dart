@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ledger.dart';
+import 'screens/account_screen.dart';
 import 'screens/budgets_screen.dart';
 import 'screens/income_screen.dart';
 import 'screens/overview_screen.dart';
@@ -73,6 +74,10 @@ class _HomeShellState extends State<HomeShell> {
           child: Center(child: CircularProgressIndicator(color: AppColors.moss)),
         ),
       );
+    }
+
+    if (!widget.ledger.signedIn) {
+      return AccountScreen(ledger: widget.ledger);
     }
 
     final screens = [

@@ -17,10 +17,14 @@ class OverviewScreen extends StatelessWidget {
     final spent = ledger.spentDuring(now);
     final left = income - spent;
     final spending = <_SpendLine>[];
+    final overLimit = <BudgetCategory>[];
     for (final budget in ledger.budgets) {
-      for (final expense in budget.expenses) {
-        if (sameMonth(expense.date, now)) {
-          spending.add(_SpendLine(budget.name, expense));
+      for (final category in budget.categories) {
+        if (category.isOver) overLimit.add(category);
+        for (final expense in category.expenses) {
+          if (category.kind == CategoryKind.recurring && sameMonth(expense.date, now)) {
+            spending.add(_SpendLine(budget.name, category.name, expense));
+          }
         }
       }
     }
@@ -37,7 +41,17 @@ class OverviewScreen extends StatelessWidget {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Text(monthYear(now), style: const TextStyle(color: AppColors.inkFade)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${ledger.account?.displayName ?? 'Account'} · ${monthYear(now)}',
+                    style: const TextStyle(color: AppColors.inkFade),
+                  ),
+                ),
+                TextButton(onPressed: ledger.signOut, child: const Text('Sign out')),
+              ],
+            ),
           ),
         ),
         SliverToBoxAdapter(
@@ -57,6 +71,27 @@ class OverviewScreen extends StatelessWidget {
         const SliverToBoxAdapter(
           child: Padding(padding: EdgeInsets.fromLTRB(20, 16, 20, 0), child: Hairline()),
         ),
+        const SliverToBoxAdapter(child: SectionHeader(title: 'Over the limit')),
+        if (overLimit.isEmpty)
+          const SliverToBoxAdapter(child: EmptyNote('No recurring category is over its limit.')),
+        SliverList.builder(
+          itemCount: overLimit.length,
+          itemBuilder: (context, index) {
+            final category = overLimit[index];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+              child: Row(
+                children: [
+                  Expanded(child: Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                  Text(
+                    '${money(category.current)} / ${money(category.target)}',
+                    style: ledgerNumber(size: 13, color: AppColors.rust),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         const SliverToBoxAdapter(child: SectionHeader(title: 'Spending')),
         if (spending.isEmpty)
           const SliverToBoxAdapter(child: EmptyNote('No expenses this month yet.')),
@@ -74,7 +109,7 @@ class OverviewScreen extends StatelessWidget {
                       children: [
                         Text(line.expense.label, style: const TextStyle(fontWeight: FontWeight.w600)),
                         Text(
-                          '${line.budgetName} · ${dateShort(line.expense.date)}',
+                          '${line.budgetName} · ${line.categoryName} · ${dateShort(line.expense.date)}',
                           style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
                         ),
                       ],
@@ -96,10 +131,10 @@ class OverviewScreen extends StatelessWidget {
           itemBuilder: (context, index) {
             final source = ledger.incomes[index];
             final budgetName = _budgetName(ledger, source.budgetId);
-            final detail = source.kind == IncomeKind.paycheck
+            final detail = source.kind.isAutomatic
                 ? '${source.frequency?.label ?? 'Monthly'} · ${money(source.expectedDuring(now))} this month'
-                : 'Side hustle · ${money(source.expectedDuring(now))} logged this month';
-            final shown = source.kind == IncomeKind.paycheck ? source.paycheckAmount : source.totalLogged;
+                : 'Manual · ${money(source.expectedDuring(now))} logged this month';
+            final shown = source.kind.isAutomatic ? source.paycheckAmount : source.totalLogged;
             return Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
               child: Row(
@@ -140,9 +175,10 @@ class OverviewScreen extends StatelessWidget {
 
 class _SpendLine {
   final String budgetName;
+  final String categoryName;
   final Expense expense;
 
-  const _SpendLine(this.budgetName, this.expense);
+  const _SpendLine(this.budgetName, this.categoryName, this.expense);
 }
 
 String _budgetName(Ledger ledger, String budgetId) {

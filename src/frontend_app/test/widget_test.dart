@@ -11,9 +11,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('expenses count toward the budget and show up this month', (tester) async {
-    await tester.pumpWidget(const BudgetApp());
-    await tester.pumpAndSettle();
+  testWidgets('expenses count toward a category limit', (tester) async {
+    await _createAccount(tester);
 
     expect(find.text('This month'), findsOneWidget);
 
@@ -30,16 +29,29 @@ void main() {
     await tester.tap(find.text('Household').first);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('add-expense')));
+    await tester.tap(find.byKey(const Key('add-category')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('expense-label-field')), 'Groceries');
-    await tester.enterText(find.byKey(const Key('expense-amount-field')), '42.50');
+    await tester.enterText(find.byKey(const Key('category-name-field')), 'Groceries');
+    await tester.enterText(find.byKey(const Key('category-amount-field')), '100');
     await tester.tap(find.widgetWithText(FilledButton, 'Add'));
     await tester.pumpAndSettle();
 
     expect(find.text('Groceries'), findsOneWidget);
+    await tester.tap(find.text('Groceries'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add-expense')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('expense-label-field')), 'Store');
+    await tester.enterText(find.byKey(const Key('expense-amount-field')), '42.50');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Store'), findsOneWidget);
     expect(find.text('\$42.50'), findsWidgets);
 
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('add-member')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('member-name-field')), 'Jordan');
@@ -60,8 +72,7 @@ void main() {
   });
 
   testWidgets('a side hustle total updates when money is logged', (tester) async {
-    await tester.pumpWidget(const BudgetApp());
-    await tester.pumpAndSettle();
+    await _createAccount(tester);
 
     await tester.tap(find.byIcon(Icons.folder_shared_outlined));
     await tester.pumpAndSettle();
@@ -76,7 +87,7 @@ void main() {
     await tester.tap(find.byKey(const Key('add-income')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Side hustle'));
+    await tester.tap(find.text('Manual'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('income-name-field')), 'Weekends');
     await tester.tap(find.widgetWithText(FilledButton, 'Add'));
@@ -93,4 +104,15 @@ void main() {
 
     expect(find.text('\$80.00'), findsWidgets);
   });
+}
+
+Future<void> _createAccount(WidgetTester tester) async {
+  await tester.pumpWidget(const BudgetApp());
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('account-first-name')), 'Philip');
+  await tester.enterText(find.byKey(const Key('account-last-name')), 'Bierley');
+  await tester.enterText(find.byKey(const Key('account-email')), 'philip@example.com');
+  await tester.enterText(find.byKey(const Key('account-password')), 'secret');
+  await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
+  await tester.pumpAndSettle();
 }
