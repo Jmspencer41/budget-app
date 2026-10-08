@@ -1,4 +1,4 @@
-# Starts Postgres, the Spring API, and the Flutter client.
+# Starts Postgres, the Spring API, and the Flutter client from the main branch.
 # Postgres and the API run as Linux containers in Docker Desktop's WSL2 VM.
 # Flutter runs on this PC and talks to http://localhost:8080.
 #
@@ -21,6 +21,16 @@ function Test-NativeCommand {
     if ($LASTEXITCODE -ne 0) {
         throw "$Name failed (exit $LASTEXITCODE)."
     }
+}
+
+if (Test-Path (Join-Path $PSScriptRoot ".git")) {
+    Write-Host "Updating the main branch..."
+    git fetch origin
+    Test-NativeCommand "git fetch"
+    git checkout main
+    Test-NativeCommand "git checkout main"
+    git pull --ff-only origin main
+    Test-NativeCommand "git pull"
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {

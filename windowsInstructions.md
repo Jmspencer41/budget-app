@@ -18,7 +18,7 @@ After the tools in section 1 are installed and `.env` exists (section 3 creates 
 .\start.ps1
 ```
 
-That builds and starts Postgres and the API in the WSL2 Linux VM, waits until the API answers on port 8080, then runs the Flutter app in Chrome against `http://localhost:8080`. For the Windows desktop app instead:
+That checks out `main`, updates it, builds and starts Postgres and the API in the WSL2 Linux VM, waits until the API answers on port 8080, then runs the Flutter app in Chrome against `http://localhost:8080`. For the Windows desktop app instead:
 
 ```powershell
 .\start.ps1 -Device windows
@@ -70,10 +70,10 @@ git clone https://github.com/Jmspencer41/budget-app.git
 cd budget-app
 ```
 
-The frontend work lives on the `philip` branch:
+Clone puts you on the `main` branch. Stay there:
 
 ```powershell
-git checkout philip
+git checkout main
 ```
 
 ## 3. Create the env file
