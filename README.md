@@ -18,9 +18,11 @@ Early development. Currently building out the core backend API.
 
 The Flutter client lets a household:
 
+- Create an account on the device
 - Create a budget and add other people to it, with a role of owner, editor, or viewer
-- Add expenses that count toward that budget's total
-- Add income as a paycheck (weekly, every two weeks, or monthly) or as a side hustle you update by logging what came in
+- Add custom categories, either a recurring spending limit or a savings goal
+- Log expenses or contributions that count toward that category
+- Add income that repeats automatically, or manual income such as a side hustle that you log by hand
 
 The client stores that ledger on the device for now. The Spring Boot API and Postgres database are the home-lab backend; connecting the client to those endpoints is the next step, so every device shares one database.
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api.dart';
 import '../ledger.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -30,6 +31,11 @@ class _AccountScreenState extends State<AccountScreen> {
     _lastName = TextEditingController();
     _email = TextEditingController(text: account?.email ?? '');
     _password = TextEditingController();
+    widget.ledger.addListener(_onLedger);
+  }
+
+  void _onLedger() {
+    if (mounted) setState(() => _error = widget.ledger.error);
   }
 
   @override
@@ -37,6 +43,7 @@ class _AccountScreenState extends State<AccountScreen> {
     _firstName.dispose();
     _lastName.dispose();
     _email.dispose();
+    widget.ledger.removeListener(_onLedger);
     _password.dispose();
     super.dispose();
   }
@@ -74,9 +81,13 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _hasAccount
-                    ? 'Sign in to the account saved on this device.'
-                    : 'Budget Buddy keeps your budgets on this device. Create an account to start.',
+                apiBaseUrl.isEmpty
+                    ? (_hasAccount
+                        ? 'Sign in to the account saved on this device.'
+                        : 'Budget Buddy keeps your budgets on this device. Create an account to start.')
+                    : (_hasAccount
+                        ? 'Sign in to the account on your home server.'
+                        : 'Create an account on your home server. Budgets are stored in the database, not only on this device.'),
                 style: const TextStyle(color: AppColors.inkFade),
               ),
               const SizedBox(height: 24),

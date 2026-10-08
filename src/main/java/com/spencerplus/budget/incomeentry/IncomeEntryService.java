@@ -1,6 +1,7 @@
 package com.spencerplus.budget.incomeentry;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -21,5 +22,9 @@ public class IncomeEntryService {
 		incomeEntry.setReceivedDate(receivedDate);
 		return incomeEntryRepository.save(incomeEntry);
 		
+	}
+
+	public List<IncomeEntry> listForSource(UUID incomeSourceId) {
+		return incomeEntryRepository.findByIncomeSourceId(incomeSourceId);
 	}
 }

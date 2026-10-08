@@ -1,6 +1,7 @@
 package com.spencerplus.budget.incomesource;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import com.spencerplus.budget.incomesource.IncomeSource.Frequency;
@@ -24,5 +25,9 @@ public class IncomeSourceService {
 		incomeSource.setAutoGenerate(autoGenerate);
 		incomeSource.setNextPayDate(nextPayDate);
 		return incomeSourceRepository.save(incomeSource);
+	}
+
+	public List<IncomeSource> listForBudget(UUID budgetId) {
+		return incomeSourceRepository.findByBudgetId(budgetId);
 	}
 }

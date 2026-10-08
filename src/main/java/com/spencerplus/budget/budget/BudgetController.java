@@ -1,6 +1,7 @@
 package com.spencerplus.budget.budget;
 
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +13,16 @@ public class BudgetController {
 
     public BudgetController(BudgetService budgetService) {
         this.budgetService = budgetService;
+    }
+
+    @GetMapping
+    public List<BudgetResponse> listForOwner(@RequestParam UUID ownerId) {
+        return budgetService.listForOwner(ownerId).stream().map(BudgetResponse::fromEntity).toList();
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteBudget(@PathVariable UUID id) {
+        budgetService.deleteBudget(id);
     }
 
     @PostMapping

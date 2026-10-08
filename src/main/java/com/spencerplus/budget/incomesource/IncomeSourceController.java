@@ -1,6 +1,8 @@
 package com.spencerplus.budget.incomesource;
 
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -13,6 +15,11 @@ public class IncomeSourceController {
 		this.incomeSourceService = incomeSourceService;
 	}
 	
+	@GetMapping("/budget/{budgetId}")
+	public List<IncomeSourceResponse> listForBudget(@PathVariable UUID budgetId) {
+		return incomeSourceService.listForBudget(budgetId).stream().map(IncomeSourceResponse::fromEntity).toList();
+	}
+
 	@PostMapping
 	public IncomeSourceResponse createIncomeSource(@Valid @RequestBody CreateIncomeSourceRequest request) {
 		IncomeSource incomeSource = incomeSourceService.createIncomeSource(

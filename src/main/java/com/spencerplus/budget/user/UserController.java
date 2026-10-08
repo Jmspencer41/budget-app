@@ -1,6 +1,7 @@
 package com.spencerplus.budget.user;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,4 +21,16 @@ public class UserController {
         );
         return UserResponse.fromEntity(user);
     }
+
+    @GetMapping("/by-email")
+    public UserResponse findByEmail(@RequestParam String email) {
+        return UserResponse.fromEntity(userService.findByEmail(email));
+    }
+
+    @PostMapping("/login")
+    public UserResponse login(@Valid @RequestBody LoginRequest request) {
+        return UserResponse.fromEntity(userService.login(request.email(), request.password()));
+    }
+
+    public record LoginRequest(@NotBlank String email, @NotBlank String password) {}
 }

@@ -166,12 +166,14 @@ class _AddMemberDialog extends StatefulWidget {
 
 class _AddMemberDialogState extends State<_AddMemberDialog> {
   final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
   BudgetRole _role = BudgetRole.editor;
   String? _error;
 
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -187,6 +189,13 @@ class _AddMemberDialogState extends State<_AddMemberDialog> {
             controller: _nameController,
             autofocus: true,
             decoration: const InputDecoration(labelText: 'Name'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('member-email-field'),
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<BudgetRole>(
@@ -219,7 +228,7 @@ class _AddMemberDialogState extends State<_AddMemberDialog> {
               setState(() => _error = '$name is already on this budget.');
               return;
             }
-            Navigator.of(context).pop(Member(name, _role));
+            Navigator.of(context).pop(Member(name, _role, email: _emailController.text.trim()));
           },
           child: const Text('Add'),
         ),

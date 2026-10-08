@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api.dart';
 import 'models.dart';
 
 const ownerName = 'You';
@@ -19,6 +20,10 @@ class Ledger extends ChangeNotifier {
   Account? account;
   bool signedIn = false;
   bool loaded = false;
+  String? error;
+  final BudgetApi _api = BudgetApi();
+
+  bool get _remote => apiBaseUrl.isNotEmpty;
 
   String get ownerLabel => account?.firstName.isNotEmpty == true ? account!.firstName : ownerName;
 
@@ -52,17 +57,39 @@ class Ledger extends ChangeNotifier {
       account = null;
       signedIn = false;
     }
+    if (_remote && signedIn && account?.id != null) {
+      try {
+        await _refreshFromApi();
+      } catch (error, stack) {
+        FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
+        this.error = 'Could not reach the budget API.';
+      }
+    }
     loaded = true;
     notifyListeners();
   }
 
   void createAccount(Account next) {
+    if (_remote) {
+      _remoteAction(() async {
+        account = await _api.createUser(next);
+        signedIn = true;
+      });
+      return;
+    }
     account = next;
     signedIn = true;
     _touch();
   }
 
   bool signIn(String email, String password) {
+    if (_remote) {
+      _remoteAction(() async {
+        account = await _api.login(email, password);
+        signedIn = true;
+      });
+      return true;
+    }
     final saved = account;
     if (saved == null) return false;
     final matches = saved.email.toLowerCase() == email.trim().toLowerCase() && saved.password == password;
@@ -78,6 +105,16 @@ class Ledger extends ChangeNotifier {
   }
 
   void addBudget(Budget budget) {
+    if (_remote) {
+      final ownerId = account?.id;
+      if (ownerId == null) {
+        error = 'Sign in before creating a budget.';
+        notifyListeners();
+        return;
+      }
+      _remoteAction(() => _api.createBudget(ownerId: ownerId, title: budget.name));
+      return;
+    }
     budgets.insert(0, budget);
     _touch();
   }
@@ -89,6 +126,21 @@ class Ledger extends ChangeNotifier {
   }
 
   void addMember(String budgetId, Member member) {
+    if (_remote) {
+      final email = member.email?.trim() ?? '';
+      if (email.isEmpty) {
+        error = 'Add an email so this person can be saved in the database.';
+        notifyListeners();
+        return;
+      }
+      _remoteAction(() => _api.addMember(
+            budgetId: budgetId,
+            name: member.name,
+            email: email,
+            role: member.role,
+          ));
+      return;
+    }
     final budget = _budget(budgetId);
     if (budget == null) return;
     final taken = budget.members.any(
@@ -107,6 +159,16 @@ class Ledger extends ChangeNotifier {
   }
 
   void addCategory(String budgetId, BudgetCategory category) {
+    if (_remote) {
+      _remoteAction(() => _api.addCategory(
+            budgetId: budgetId,
+            name: category.name,
+            kind: category.kind,
+            frequency: category.frequency,
+            target: category.target,
+          ));
+      return;
+    }
     final budget = _budget(budgetId);
     if (budget == null) return;
     budget.categories.insert(0, category);
@@ -119,6 +181,18 @@ class Ledger extends ChangeNotifier {
   }
 
   void addExpense(String budgetId, String categoryId, Expense expense) {
+    if (_remote) {
+      final userId = account?.id;
+      if (userId == null) return;
+      _remoteAction(() => _api.addExpense(
+            categoryId: categoryId,
+            userId: userId,
+            label: expense.label,
+            amount: expense.amount,
+            date: expense.date,
+          ));
+      return;
+    }
     final category = _category(budgetId, categoryId);
     if (category == null) return;
     category.expenses.insert(0, expense);
@@ -131,6 +205,12 @@ class Ledger extends ChangeNotifier {
   }
 
   void addIncome(IncomeSource source) {
+    if (_remote) {
+      final userId = account?.id;
+      if (userId == null) return;
+      _remoteAction(() => _api.addIncome(source, userId));
+      return;
+    }
     incomes.insert(0, source);
     _touch();
   }
@@ -144,6 +224,14 @@ class Ledger extends ChangeNotifier {
   }
 
   void logSideHustle(String incomeId, IncomePayment payment) {
+    if (_remote) {
+      _remoteAction(() => _api.logPayment(
+            incomeSourceId: incomeId,
+            amount: payment.amount,
+            date: payment.date,
+          ));
+      return;
+    }
     final source = _income(incomeId);
     if (source == null || source.kind.isAutomatic) return;
     source.payments.insert(0, payment);
@@ -193,6 +281,34 @@ class Ledger extends ChangeNotifier {
       if (income.id == id) return income;
     }
     return null;
+  }
+
+  Future<void> _refreshFromApi() async {
+    final ownerId = account?.id;
+    if (ownerId == null) return;
+    final nextBudgets = await _api.loadBudgets(ownerId);
+    final nextIncome = await _api.loadIncome(nextBudgets);
+    budgets
+      ..clear()
+      ..addAll(nextBudgets);
+    incomes
+      ..clear()
+      ..addAll(nextIncome);
+    error = null;
+  }
+
+  void _remoteAction(Future<void> Function() action) {
+    () async {
+      try {
+        error = null;
+        await action();
+        await _refreshFromApi();
+        _touch();
+      } catch (caught) {
+        error = caught.toString();
+        notifyListeners();
+      }
+    }();
   }
 
   void _touch() {

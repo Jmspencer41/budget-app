@@ -60,17 +60,29 @@ double monthlyEquivalent(PayFrequency frequency, double amount) {
 }
 
 class Member {
+  final String? id;
+  final String? userId;
   final String name;
+  final String? email;
   final BudgetRole role;
 
-  const Member(this.name, this.role);
+  const Member(this.name, this.role, {this.id, this.userId, this.email});
 
-  Map<String, dynamic> toJson() => {'name': name, 'role': role.name};
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'email': email,
+        'role': role.name,
+      };
 
   factory Member.fromJson(Map<String, dynamic> json) {
     return Member(
       json['name'] as String? ?? '',
       BudgetRole.values.asNameMap()[json['role']] ?? BudgetRole.viewer,
+      id: json['id'] as String?,
+      userId: json['userId'] as String?,
+      email: json['email'] as String?,
     );
   }
 }
@@ -106,12 +118,14 @@ class Expense {
 }
 
 class Account {
+  final String? id;
   final String firstName;
   final String lastName;
   final String email;
   final String password;
 
   const Account({
+    this.id,
     required this.firstName,
     required this.lastName,
     required this.email,
@@ -121,6 +135,7 @@ class Account {
   String get displayName => '$firstName $lastName'.trim();
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'firstName': firstName,
         'lastName': lastName,
         'email': email,
@@ -129,6 +144,7 @@ class Account {
 
   factory Account.fromJson(Map<String, dynamic> json) {
     return Account(
+      id: json['id'] as String?,
       firstName: json['firstName'] as String? ?? '',
       lastName: json['lastName'] as String? ?? '',
       email: json['email'] as String? ?? '',
