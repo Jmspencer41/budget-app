@@ -1,0 +1,5 @@
+target
+.git
+src/frontend_app/build
+src/frontend_app/.dart_tool
+*.md

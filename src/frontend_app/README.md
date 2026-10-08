@@ -1,17 +1,10 @@
-# frontend_app
+# Budget Buddy
 
-A new Flutter project.
+Flutter client for the self-hosted budget app. One codebase targets web, Android, iOS, and desktop.
 
-## Getting Started
+```bash
+flutter pub get
+flutter run
+```
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Budgets, the people on them, expenses, and income are saved on the device. The Spring Boot API in the repo root is the home-lab backend those screens will call.
