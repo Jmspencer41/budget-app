@@ -6,4 +6,5 @@ import java.util.UUID;
 
 public interface IncomeSourceRepository extends JpaRepository<IncomeSource, UUID> {
     List<IncomeSource> findByUserId(UUID userId);
+    List<IncomeSource> findByBudgetId(UUID budgetId);
 }

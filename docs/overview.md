@@ -128,9 +128,14 @@ go through the API.
  
 ## Status
  
-Core backend data model and CRUD operations are implemented for all major
+Core backend data model and create operations are implemented for all major
 entities. Read endpoints and derived calculations (such as category and
 budget remaining balances) are in progress. Authentication is currently
 open for development purposes and will be replaced with token-based
-authentication before release. Frontend development has not yet begun.
+authentication before release.
+
+The Flutter client covers the first household workflow: create a budget,
+add people, log expenses that count toward the budget, and track income
+as a repeating paycheck or a side hustle updated by hand. That ledger is
+stored on the device until the API can serve it from Postgres.
  
