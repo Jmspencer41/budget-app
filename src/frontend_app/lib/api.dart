@@ -115,7 +115,7 @@ class BudgetApi {
   }
 
   Future<List<Budget>> loadBudgets(String ownerId) async {
-    final rows = await _list('/api/budgets?ownerId=$ownerId');
+    final rows = await _list('/api/budgets?userId=$ownerId');
     final budgets = <Budget>[];
     for (final row in rows) {
       final id = row['id'] as String;
@@ -162,24 +162,17 @@ class BudgetApi {
     return sources;
   }
 
-  Future<String> _userIdFor(String name, String email) async {
-    try {
-      final existing = await _object('GET', '/api/users/by-email?email=${Uri.encodeQueryComponent(email)}');
-      return existing['id'] as String;
-    } on ApiException catch (error) {
-      if (!error.message.contains('404')) rethrow;
+Future<String> _userIdFor(String name, String email) async {
+  try {
+    final existing = await _object('GET', '/api/users/by-email?email=${Uri.encodeQueryComponent(email)}');
+    return existing['id'] as String;
+  } on ApiException catch (error) {
+    if (error.message.contains('(404)')) {
+      throw ApiException('No account found for $email. They need to sign up first.');
     }
-    final parts = name.trim().split(RegExp(r'\s+'));
-    final created = await createUser(
-      Account(
-        firstName: parts.first,
-        lastName: parts.length > 1 ? parts.sublist(1).join(' ') : 'Member',
-        email: email,
-        password: 'changeme',
-      ),
-    );
-    return created.id!;
+    rethrow;
   }
+}
 
   Future<List<Member>> _members(String budgetId) async {
     final rows = await _list('/api/budgetmembers/budget/$budgetId');

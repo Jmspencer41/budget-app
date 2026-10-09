@@ -1,6 +1,7 @@
 package com.spencerplus.budget.budget;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.spencerplus.budget.budgetmembers.BudgetMember;
 import com.spencerplus.budget.budgetmembers.BudgetMember.Role;
 import com.spencerplus.budget.budgetmembers.BudgetMemberRepository;
@@ -8,6 +9,7 @@ import com.spencerplus.budget.category.Category;
 import com.spencerplus.budget.category.CategoryRepository;
 import com.spencerplus.budget.category.CategoryService;
 import java.util.UUID;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -28,7 +30,8 @@ public class BudgetService {
 		this.categoryService = categoryService;
 		this.budgetMemberRepository = budgetMemberRepository;
 	}
-
+	
+	@Transactional
 	public Budget createBudget(String title, UUID ownerId) {
 		Budget budget = new Budget();
 		budget.setTitle(title);
@@ -43,9 +46,13 @@ public class BudgetService {
 		return saved;
 	}
 
-	public List<Budget> listForOwner(UUID ownerId) {
-		return budgetRepository.findByOwnerId(ownerId);
-	}
+	  public List<Budget> listForUser(UUID userId) {
+	      List<UUID> budgetIds = new ArrayList<>();
+	      for (BudgetMember member : budgetMemberRepository.findByUserId(userId)) {
+	          budgetIds.add(member.getBudgetId());
+	      }
+	      return budgetRepository.findAllById(budgetIds);
+	  }
 
 	public void deleteBudget(UUID budgetId) {
 		budgetRepository.deleteById(budgetId);

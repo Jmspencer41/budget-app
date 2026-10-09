@@ -1,7 +1,13 @@
+FROM ghcr.io/cirruslabs/flutter:stable AS web
+WORKDIR /web
+COPY src/frontend_app/ .
+RUN flutter pub get && flutter build web --release --dart-define=API_BASE=http://localhost:8080
+
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
+COPY --from=web /web/build/web ./src/main/resources/static
 RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre
