@@ -16,6 +16,13 @@ class AppColors {
   static const gold = Color(0xFFF2C14E);
 }
 
+Color spendColor(double spent, double limit) {
+  if (limit <= 0) return AppColors.moss;
+  if (spent > limit) return AppColors.rust;
+  if (spent >= limit * 0.9) return AppColors.gold;
+  return AppColors.moss;
+}
+
 ThemeData buildTheme() {
   final base = ThemeData(
     useMaterial3: true,

@@ -52,7 +52,7 @@ class BudgetsScreen extends StatelessWidget {
           itemBuilder: (context, index) {
             final budget = budgets[index];
             final isOver = budget.totalSpent > budget.totalLimit && budget.totalLimit > 0;
-            final tint = isOver ? AppColors.rust : AppColors.moss;
+            final tint = spendColor(budget.totalSpent, budget.totalLimit);
             return GlassCard(
               tint: tint,
               onTap: () {
@@ -236,7 +236,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               itemBuilder: (context, index) {
                 final category = budget.categories[index];
                 final isGoal = category.kind == CategoryKind.goal;
-                final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
+                final color = isGoal ? AppColors.gold : spendColor(category.current, category.target);
                 return GlassCard(
                   tint: color,
                   onTap: () {
