@@ -942,7 +942,6 @@ Planned but not done:
 - **Duplicate signup email returns 500.** Should return 409.
 - **No global error handler** (`@ControllerAdvice`), so failures that are not explicit `ResponseStatusException`s surface as a generic 500.
 - **`GET /api/categories/{id}/remaining` returns 500 for a missing category** (plain `RuntimeException`). Should be a 404 `ResponseStatusException`, matching `deleteCategory`.
-- **`CreateBudgetRequest.ownerId` has no `@NotNull`.**
 - **No length validation** on names and titles, so a value over 100 characters fails at the database with 500.
 - **No update (`PUT`/`PATCH`) endpoints at all.** Deletes now exist for everything except users.
 - **Frequency does not affect calculations**; limits never reset.
@@ -1008,7 +1007,12 @@ Planned but not done:
 10. Android build (package ID, permissions, HTTPS, launcher icon). iOS needs a Mac.
 11. Choose the final app name, then update the web title, manifest, and Android label to match.
 
-**Idea, not started:** a separate investment or retirement account table with a stored balance.
+
+**Stretch Goals**
+
+1. Adding some charts and analytics to the main page or maybe a separate tab.
+2. Include a way to upload files (receipts and documents). 
+3. a separate investment or retirement account table with a stored balance.
 
 ---
 
