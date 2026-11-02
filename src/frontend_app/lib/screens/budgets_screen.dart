@@ -51,51 +51,46 @@ class BudgetsScreen extends StatelessWidget {
           itemCount: budgets.length,
           itemBuilder: (context, index) {
             final budget = budgets[index];
-            return Column(
-              children: [
-                if (index != 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Hairline()),
-                ListTile(
-                  contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                  title: Text(budget.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        for (final member in budget.members)
-                          Chip(
-                            label: Text(
-                              '${member.name} · ${member.role.label}',
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                            visualDensity: VisualDensity.compact,
-                            backgroundColor: AppColors.paperDim,
-                            side: const BorderSide(color: AppColors.hairline),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+            final isOver = budget.totalSpent > budget.totalLimit && budget.totalLimit > 0;
+            final tint = isOver ? AppColors.rust : AppColors.moss;
+            return GlassCard(
+              tint: tint,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BudgetDetailScreen(ledger: ledger, budget: budget),
+                  ),
+                );
+              },
+              child: ListTile(
+                contentPadding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                title: Text(budget.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final member in budget.members)
+                        Chip(
+                          label: Text(
+                            '${member.name} · ${member.role.label}',
+                            style: const TextStyle(fontSize: 11),
                           ),
-                      ],
-                    ),
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: Colors.white.withValues(alpha: 0.07),
+                          side: BorderSide.none,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        ),
+                    ],
                   ),
-                  trailing: Text(
-                    '${money(budget.totalSpent)}\n/ ${money(budget.totalLimit)}',
-                    textAlign: TextAlign.right,
-                    style: ledgerNumber(
-                      size: 13,
-                      color: budget.totalSpent > budget.totalLimit && budget.totalLimit > 0
-                          ? AppColors.rust
-                          : AppColors.ink,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => BudgetDetailScreen(ledger: ledger, budget: budget),
-                      ),
-                    );
-                  },
                 ),
-              ],
+                trailing: Text(
+                  '${money(budget.totalSpent)}\n/ ${money(budget.totalLimit)}',
+                  textAlign: TextAlign.right,
+                  style: ledgerNumber(size: 13, color: isOver ? AppColors.rust : AppColors.ink),
+                ),
+              ),
             );
           },
         ),
@@ -123,7 +118,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     }
     return widget.budget;
   }
-  
+
   bool get _budgetExists {
     for (final candidate in ledger.budgets) {
       if (candidate.id == widget.budget.id) return true;
@@ -242,54 +237,52 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 final category = budget.categories[index];
                 final isGoal = category.kind == CategoryKind.goal;
                 final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
-                return Column(
-                  children: [
-                    InkWell(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => CategoryScreen(
-                              ledger: ledger,
-                              budget: budget,
-                              category: category,
-                            ),
-                          ),
-                        );
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                ),
-                                Text(
-                                  '${money(category.current)} / ${money(category.target)}',
-                                  style: ledgerNumber(size: 13, color: color),
-                                ),
-                                RowAction(
-                                  icon: Icons.close,
-                                  color: AppColors.rust,
-                                  onTap: () => ledger.removeCategory(budget.id, category.id),
-                                ),
-                              ],
-                            ),
-                            Text(
-                              isGoal ? 'Savings goal' : '${category.kind.label} · ${category.frequency.label}',
-                              style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
-                            ),
-                            const SizedBox(height: 6),
-                            FillBar(fraction: category.fraction, color: color),
-                          ],
+                return GlassCard(
+                  tint: color,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CategoryScreen(
+                          ledger: ledger,
+                          budget: budget,
+                          category: category,
                         ),
                       ),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 6, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            ),
+                            Text(
+                              '${money(category.current)} / ${money(category.target)}',
+                              style: ledgerNumber(size: 13, color: color),
+                            ),
+                            RowAction(
+                              icon: Icons.close,
+                              color: AppColors.rust,
+                              onTap: () => ledger.removeCategory(budget.id, category.id),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          isGoal ? 'Savings goal' : '${category.kind.label} · ${category.frequency.label}',
+                          style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+                        ),
+                        const SizedBox(height: 6),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FillBar(fraction: category.fraction, color: color),
+                        ),
+                      ],
                     ),
-                    if (index != budget.categories.length - 1)
-                      const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Hairline()),
-                  ],
+                  ),
                 );
               },
             ),
@@ -304,21 +297,24 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               itemCount: budget.members.length,
               itemBuilder: (context, index) {
                 final member = budget.members[index];
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                      RoleBadge(role: member.role),
-                      if (member.role != BudgetRole.owner)
-                        RowAction(
-                          icon: Icons.close,
-                          color: AppColors.rust,
-                          onTap: () => ledger.removeMember(budget.id, member),
+                return GlassCard(
+                  tint: AppColors.inkFade,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(member.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         ),
-                    ],
+                        RoleBadge(role: member.role),
+                        if (member.role != BudgetRole.owner)
+                          RowAction(
+                            icon: Icons.close,
+                            color: AppColors.rust,
+                            onTap: () => ledger.removeMember(budget.id, member),
+                          ),
+                      ],
+                    ),
                   ),
                 );
               },

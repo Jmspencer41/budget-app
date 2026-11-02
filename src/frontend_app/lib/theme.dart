@@ -290,3 +290,28 @@ class EmptyNote extends StatelessWidget {
     );
   }
 }
+
+class GlassCard extends StatelessWidget {
+  final Widget child;
+  final Color tint;
+  final VoidCallback? onTap;
+
+  const GlassCard({super.key, required this.child, required this.tint, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(16);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
+      child: Material(
+        color: tint.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: tint.withValues(alpha: 0.28)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(onTap: onTap, child: child),
+      ),
+    );
+  }
+}
