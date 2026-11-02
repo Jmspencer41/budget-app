@@ -917,9 +917,6 @@ Planned but not done:
 
 ### 14.2 Frontend
 
-- **Deleting does not reach the server.** Every remove method in `ledger.dart` (`deleteBudget`, `removeCategory`, `removeExpense`, `removeMember`, `removeIncome`, `removePayment`) only changes the local list. In remote mode the item disappears, then comes back on the next refresh. `api.dart` cannot send a `DELETE` at all (`_object` only handles `GET` and `POST`).
-  - Fix for budgets: add a `'DELETE'` case to `_object` (`http.delete(uri, headers: headers)`), add `BudgetApi.deleteBudget(id)`, and give `Ledger.deleteBudget` an `if (_remote) { _remoteAction(() => _api.deleteBudget(budgetId)); return; }` branch like the add methods have.
-  - The other removes need backend `DELETE` endpoints first. Until then, hide or disable those buttons in remote mode, or show an error.
 - **Editing a paycheck does not reach the server** (`updatePaycheck` is local only) and is reverted on the next refresh.
 - **Detail screens close themselves after any remote change.** `_refreshFromApi()` replaces every `Budget` and `BudgetCategory` with new objects. `BudgetDetailScreen` and `CategoryScreen` check `ledger.budgets.contains(budget)` by object identity, which is now false, so they pop. Comparing by `id` instead would fix it.
 - **API errors are invisible outside the account screen.** `ledger.error` is only displayed on `AccountScreen`, so a failed add on any other screen fails silently.

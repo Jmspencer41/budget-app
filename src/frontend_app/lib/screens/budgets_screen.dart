@@ -117,7 +117,19 @@ class BudgetDetailScreen extends StatefulWidget {
 
 class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   Ledger get ledger => widget.ledger;
-  Budget get budget => widget.budget;
+  Budget get budget {
+    for (final candidate in ledger.budgets) {
+      if (candidate.id == widget.budget.id) return candidate;
+    }
+    return widget.budget;
+  }
+  
+  bool get _budgetExists {
+    for (final candidate in ledger.budgets) {
+      if (candidate.id == widget.budget.id) return true;
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -133,7 +145,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
   void _onLedger() {
     if (!mounted) return;
-    if (!ledger.budgets.contains(budget)) {
+    if (!_budgetExists) {
       Navigator.of(context).pop();
       return;
     }
@@ -370,10 +382,19 @@ class _CategoryScreenState extends State<CategoryScreen> {
     super.dispose();
   }
 
+  BudgetCategory? get _currentCategory {
+    for (final budget in widget.ledger.budgets) {
+      if (budget.id != widget.budget.id) continue;
+      for (final category in budget.categories) {
+        if (category.id == widget.category.id) return category;
+      }
+    }
+    return null;
+  }
+
   void _onLedger() {
     if (!mounted) return;
-    final stillThere = widget.budget.categories.contains(widget.category);
-    if (!stillThere || !widget.ledger.budgets.contains(widget.budget)) {
+    if (_currentCategory == null) {
       Navigator.of(context).pop();
       return;
     }
@@ -389,7 +410,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final category = widget.category;
+    final category = _currentCategory ?? widget.category;
     final isGoal = category.kind == CategoryKind.goal;
     final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
     return Scaffold(

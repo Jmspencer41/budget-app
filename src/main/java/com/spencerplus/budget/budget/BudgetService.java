@@ -2,6 +2,8 @@ package com.spencerplus.budget.budget;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.budgetmembers.BudgetMember;
 import com.spencerplus.budget.budgetmembers.BudgetMember.Role;
 import com.spencerplus.budget.budgetmembers.BudgetMemberRepository;
@@ -54,9 +56,12 @@ public class BudgetService {
 	      return budgetRepository.findAllById(budgetIds);
 	  }
 
-	public void deleteBudget(UUID budgetId) {
-		budgetRepository.deleteById(budgetId);
-	}
+	  public void deleteBudget(UUID budgetId) {
+	    if (!budgetRepository.existsById(budgetId)) {
+	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Budget not found");
+	    }
+	    budgetRepository.deleteById(budgetId);
+	  }
 	
 	public long getTotal(UUID budgetId) {
 		List<Category> categories = categoryRepository.findByBudgetId(budgetId);

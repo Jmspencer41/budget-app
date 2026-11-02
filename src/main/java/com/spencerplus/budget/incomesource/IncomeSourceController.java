@@ -27,4 +27,9 @@ public class IncomeSourceController {
 				);
 		return IncomeSourceResponse.fromEntity(incomeSource);
 	}
+	
+	@DeleteMapping("/{id}")
+	public void deleteIncomeSource(@PathVariable UUID id) {
+	    incomeSourceService.deleteIncomeSource(id);
+	}
 }

@@ -1,6 +1,8 @@
 package com.spencerplus.budget.category;
 
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.category.Category.CategoryType;
 import com.spencerplus.budget.category.Category.Frequency;
 import com.spencerplus.budget.transaction.Transaction;
@@ -27,6 +29,13 @@ public class CategoryService {
 		category.setFrequency(frequency);
 		category.setAmountCents(amountCents);
 		return categoryRepository.save(category);
+	}
+	
+	public void deleteCategory(UUID categoryId) {
+	    if (!categoryRepository.existsById(categoryId)) {
+	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found");
+	    }
+	    categoryRepository.deleteById(categoryId);
 	}
 	
 	public long getRemainingAmount(UUID categoryId) {

@@ -4,6 +4,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class IncomeEntryService {
@@ -22,6 +24,13 @@ public class IncomeEntryService {
 		incomeEntry.setReceivedDate(receivedDate);
 		return incomeEntryRepository.save(incomeEntry);
 		
+	}
+	
+	public void deleteIncomeEntry(UUID incomeEntryId) {
+	    if (!incomeEntryRepository.existsById(incomeEntryId)) {
+	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Income entry not found");
+	    }
+	    incomeEntryRepository.deleteById(incomeEntryId);
 	}
 
 	public List<IncomeEntry> listForSource(UUID incomeSourceId) {

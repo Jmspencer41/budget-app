@@ -181,9 +181,16 @@ class _SideHustleScreenState extends State<SideHustleScreen> {
     super.dispose();
   }
 
+  IncomeSource? get _currentSource {
+    for (final income in widget.ledger.incomes) {
+      if (income.id == widget.source.id) return income;
+    }
+    return null;
+  }
+
   void _onLedger() {
     if (!mounted) return;
-    if (!widget.ledger.incomes.contains(widget.source)) {
+    if (_currentSource == null) {
       Navigator.of(context).pop();
       return;
     }
@@ -197,7 +204,7 @@ class _SideHustleScreenState extends State<SideHustleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final source = widget.source;
+    final source = _currentSource ?? widget.source;
     final now = DateTime.now();
     return Scaffold(
       appBar: AppBar(

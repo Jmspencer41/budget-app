@@ -120,6 +120,10 @@ class Ledger extends ChangeNotifier {
   }
 
   void deleteBudget(String budgetId) {
+    if (_remote) {
+      _remoteAction(() => _api.deleteBudget(budgetId));
+      return;
+    }
     budgets.removeWhere((budget) => budget.id == budgetId);
     incomes.removeWhere((income) => income.budgetId == budgetId);
     _touch();
@@ -153,6 +157,12 @@ class Ledger extends ChangeNotifier {
 
   void removeMember(String budgetId, Member member) {
     if (member.role == BudgetRole.owner) return;
+    if (_remote) {
+      final memberId = member.id;
+      if (memberId == null) return;
+      _remoteAction(() => _api.deleteMember(memberId));
+      return;
+    }
     final budget = _budget(budgetId);
     budget?.members.remove(member);
     _touch();
@@ -176,6 +186,10 @@ class Ledger extends ChangeNotifier {
   }
 
   void removeCategory(String budgetId, String categoryId) {
+    if (_remote) {
+      _remoteAction(() => _api.deleteCategory(categoryId));
+      return;
+    }
     _budget(budgetId)?.categories.removeWhere((category) => category.id == categoryId);
     _touch();
   }
@@ -200,6 +214,10 @@ class Ledger extends ChangeNotifier {
   }
 
   void removeExpense(String budgetId, String categoryId, String expenseId) {
+    if (_remote) {
+      _remoteAction(() => _api.deleteExpense(expenseId));
+      return;
+    }
     _category(budgetId, categoryId)?.expenses.removeWhere((expense) => expense.id == expenseId);
     _touch();
   }
@@ -239,11 +257,19 @@ class Ledger extends ChangeNotifier {
   }
 
   void removePayment(String incomeId, String paymentId) {
+    if (_remote) {
+      _remoteAction(() => _api.deletePayment(paymentId));
+      return;
+    }
     _income(incomeId)?.payments.removeWhere((payment) => payment.id == paymentId);
     _touch();
   }
 
   void removeIncome(String incomeId) {
+    if (_remote) {
+      _remoteAction(() => _api.deleteIncome(incomeId));
+      return;
+    }
     incomes.removeWhere((income) => income.id == incomeId);
     _touch();
   }

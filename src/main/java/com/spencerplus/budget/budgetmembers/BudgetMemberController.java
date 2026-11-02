@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import com.spencerplus.budget.budgetmembers.BudgetMemberService.BudgetMemberView;
 import jakarta.validation.Valid;
 
@@ -30,6 +31,11 @@ public class BudgetMemberController {
 	public BudgetMemberResponse createBudgetMember(@Valid @RequestBody CreateBudgetMemberRequest request) {
 		BudgetMember budgetMember = budgetMemberService.createBudgetMember(request.budgetId(), request.userId(), request.role());
 		return BudgetMemberResponse.fromEntity(budgetMember);
+	}
+	
+	@DeleteMapping("/{id}")
+	public void deleteBudgetMember(@PathVariable UUID id) {
+	    budgetMemberService.deleteBudgetMember(id);
 	}
 
 }

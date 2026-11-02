@@ -114,6 +114,30 @@ class BudgetApi {
     });
   }
 
+  Future<void> deleteBudget(String budgetId) async {
+    await _object('DELETE', '/api/budgets/$budgetId');
+  }
+
+  Future<void> deleteCategory(String categoryId) async {
+    await _object('DELETE', '/api/categories/$categoryId');
+  }
+
+  Future<void> deleteExpense(String transactionId) async {
+    await _object('DELETE', '/api/transactions/$transactionId');
+  }
+
+  Future<void> deleteMember(String memberId) async {
+    await _object('DELETE', '/api/budgetmembers/$memberId');
+  }
+
+  Future<void> deleteIncome(String incomeSourceId) async {
+    await _object('DELETE', '/api/incomesources/$incomeSourceId');
+  }
+
+  Future<void> deletePayment(String incomeEntryId) async {
+    await _object('DELETE', '/api/incomeentries/$incomeEntryId');
+  }	
+	
   Future<List<Budget>> loadBudgets(String ownerId) async {
     final rows = await _list('/api/budgets?userId=$ownerId');
     final budgets = <Budget>[];
@@ -231,6 +255,7 @@ Future<String> _userIdFor(String name, String email) async {
     final response = switch (method) {
       'GET' => await http.get(uri, headers: headers),
       'POST' => await http.post(uri, headers: headers, body: jsonEncode(body)),
+      'DELETE' => await http.delete(uri, headers: headers),
       _ => throw ApiException('Unsupported $method'),
     };
     _check(response, method, path);

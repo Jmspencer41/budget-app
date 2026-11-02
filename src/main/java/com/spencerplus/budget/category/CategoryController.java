@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import jakarta.validation.Valid;
 
 @RestController
@@ -31,6 +32,11 @@ public class CategoryController {
 				request.amountCents()
 				);
 		return CategoryResponse.fromEntity(category);
+	}
+	
+	@DeleteMapping("/{id}")
+	public void deleteCategory(@PathVariable UUID id) {
+	    categoryService.deleteCategory(id);
 	}
 	
 	@GetMapping("/{id}/remaining")

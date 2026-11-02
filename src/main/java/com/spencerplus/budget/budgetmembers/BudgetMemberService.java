@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.budgetmembers.BudgetMember.Role;
 import com.spencerplus.budget.user.User;
 import com.spencerplus.budget.user.UserRepository;
@@ -25,6 +27,15 @@ public class BudgetMemberService {
 		budgetMember.setUserId(userId);
 		budgetMember.setRole(role);
 		return budgetMemberRepository.save(budgetMember);
+	}
+	
+	public void deleteBudgetMember(UUID memberId) {
+	    BudgetMember member = budgetMemberRepository.findById(memberId)
+	        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found"));
+	    if (member.getRole() == Role.OWNER) {
+	        throw new ResponseStatusException(HttpStatus.CONFLICT, "The owner cannot be removed from a budget");
+	    }
+	    budgetMemberRepository.delete(member);
 	}
 
 	public List<BudgetMemberView> listForBudget(UUID budgetId) {

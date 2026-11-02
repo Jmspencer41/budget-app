@@ -4,6 +4,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class TransactionService {
@@ -23,6 +25,13 @@ public class TransactionService {
 		transaction.setAmountCents(amountCents);
 		transaction.setTransactionDate(transactionDate);
 		return transactionRepository.save(transaction);
+	}
+	
+	public void deleteTransaction(UUID transactionId) {
+	    if (!transactionRepository.existsById(transactionId)) {
+	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found");
+	    }
+	    transactionRepository.deleteById(transactionId);
 	}
 	
 	public List<Transaction> getTransactionForCategory(UUID categoryId) {
