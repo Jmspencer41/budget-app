@@ -55,7 +55,7 @@ extension CategoryFrequencyLabel on CategoryFrequency {
   }
 }
 
-enum PayFrequency { weekly, biweekly, monthly }
+enum PayFrequency { weekly, biweekly, semimonthly, monthly }
 
 extension PayFrequencyLabel on PayFrequency {
   String get label {
@@ -64,21 +64,102 @@ extension PayFrequencyLabel on PayFrequency {
         return 'Weekly';
       case PayFrequency.biweekly:
         return 'Every 2 weeks';
+      case PayFrequency.semimonthly:
+        return 'Twice a month';
       case PayFrequency.monthly:
         return 'Monthly';
     }
   }
 }
 
-/// A paycheck's set amount, expressed as what it contributes in a typical month.
-double monthlyEquivalent(PayFrequency frequency, double amount) {
+/// Every payday from [from] to [to], both days included, oldest first.
+/// Same rules as IncomeSourceService.getPayDates on the server, so local-only
+/// mode and the server always agree.
+List<DateTime> payDatesBetween(
+  PayFrequency frequency,
+  DateTime anchorDate,
+  int? secondPayDay,
+  DateTime from,
+  DateTime to,
+) {
+  final payDates = <DateTime>[];
+  final anchor = _dateOnly(anchorDate);
+  var start = _dateOnly(from);
+  final end = _dateOnly(to);
+  if (start.isBefore(anchor)) start = anchor; // nothing is paid before the anchor
+  if (start.isAfter(end)) return payDates; // empty range
+
   switch (frequency) {
     case PayFrequency.weekly:
-      return amount * 52 / 12;
+      _addEveryNDays(payDates, anchor, 7, start, end);
     case PayFrequency.biweekly:
-      return amount * 26 / 12;
+      _addEveryNDays(payDates, anchor, 14, start, end);
     case PayFrequency.monthly:
-      return amount;
+      _addMonthly(payDates, anchor, start, end);
+    case PayFrequency.semimonthly:
+      _addSemimonthly(payDates, anchor, secondPayDay ?? anchor.day, start, end);
+  }
+  return payDates;
+}
+
+/// Whole days from [a] to [b]. Uses UTC so a daylight saving change can't make a day 23 hours.
+int _daysBetween(DateTime a, DateTime b) {
+  return DateTime.utc(b.year, b.month, b.day).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+}
+
+/// [date] plus [months], clamped to the end of a short month (Jan 31 + 1 month is Feb 28).
+DateTime _addMonths(DateTime date, int months) {
+  final firstOfMonth = DateTime(date.year, date.month + months, 1); // DateTime rolls month 13 into next year
+  final lastDay = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 0).day; // day 0 = last day of the month before
+  final day = date.day < lastDay ? date.day : lastDay;
+  return DateTime(firstOfMonth.year, firstOfMonth.month, day);
+}
+
+void _addEveryNDays(List<DateTime> payDates, DateTime anchor, int stepDays, DateTime start, DateTime end) {
+  var index = (_daysBetween(anchor, start) + stepDays - 1) ~/ stepDays; // round up to the first payday on or after start
+  var payDate = DateTime(anchor.year, anchor.month, anchor.day + index * stepDays);
+  while (!payDate.isAfter(end)) {
+    payDates.add(payDate);
+    index++;
+    payDate = DateTime(anchor.year, anchor.month, anchor.day + index * stepDays); // always measured from the anchor
+  }
+}
+
+void _addMonthly(List<DateTime> payDates, DateTime anchor, DateTime start, DateTime end) {
+  var index = (start.year - anchor.year) * 12 + (start.month - anchor.month) - 1; // one month early, to be safe
+  if (index < 0) index = 0;
+  var payDate = _addMonths(anchor, index);
+  while (payDate.isBefore(start)) { // walk forward to the first payday on or after start
+    index++;
+    payDate = _addMonths(anchor, index);
+  }
+  while (!payDate.isAfter(end)) {
+    payDates.add(payDate);
+    index++;
+    payDate = _addMonths(anchor, index);
+  }
+}
+
+void _addSemimonthly(List<DateTime> payDates, DateTime anchor, int secondPayDay, DateTime start, DateTime end) {
+  final firstDay = anchor.day < secondPayDay ? anchor.day : secondPayDay; // earlier day of the month goes first
+  final secondDay = anchor.day < secondPayDay ? secondPayDay : anchor.day;
+  var year = start.year;
+  var month = start.month;
+  while (year < end.year || (year == end.year && month <= end.month)) {
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final firstDate = DateTime(year, month, firstDay < lastDay ? firstDay : lastDay); // the 31st becomes the 30th, 29th, or 28th
+    final secondDate = DateTime(year, month, secondDay < lastDay ? secondDay : lastDay);
+    if (!firstDate.isBefore(start) && !firstDate.isAfter(end)) {
+      payDates.add(firstDate);
+    }
+    if (secondDate != firstDate && !secondDate.isBefore(start) && !secondDate.isAfter(end)) { // 30th and 31st both land on Feb 28, count it once
+      payDates.add(secondDate);
+    }
+    month++;
+    if (month == 13) {
+      month = 1;
+      year++;
+    }
   }
 }
 
@@ -367,7 +448,14 @@ class IncomeSource {
   final IncomeKind kind;
   PayFrequency? frequency;
   double paycheckAmount;
+  DateTime? anchorDate;
+  int? secondPayDay;
   final List<IncomePayment> payments;
+
+  /// Calculated by the API for the current month. Null in local-only mode.
+  final double? receivedThisMonth;
+  final double? expectedThisMonth;
+  final DateTime? nextPayDate;
 
   IncomeSource({
     required this.id,
@@ -376,19 +464,63 @@ class IncomeSource {
     required this.kind,
     this.frequency,
     this.paycheckAmount = 0,
+    this.anchorDate,
+    this.secondPayDay,
+    this.receivedThisMonth,
+    this.expectedThisMonth,
+    this.nextPayDate,
     List<IncomePayment>? payments,
   }) : payments = payments ?? [];
 
   double get totalLogged => payments.fold(0, (sum, payment) => sum + payment.amount);
 
-  double expectedDuring(DateTime month) {
-    if (kind == IncomeKind.paycheck) {
-      final cadence = frequency ?? PayFrequency.monthly;
-      return monthlyEquivalent(cadence, paycheckAmount);
+  /// Money that has already come in during [month].
+  double receivedDuring(DateTime month) {
+    if (receivedThisMonth != null && sameMonth(month, DateTime.now())) {
+      return receivedThisMonth!; // the server's number only describes the current month
     }
-    return payments
-        .where((payment) => sameMonth(payment.date, month))
-        .fold(0, (sum, payment) => sum + payment.amount);
+    final monthStart = DateTime(month.year, month.month, 1);
+    final monthEnd = DateTime(month.year, month.month + 1, 0);
+    final today = _dateOnly(DateTime.now());
+    final end = today.isBefore(monthEnd) ? today : monthEnd; // the current month stops at today
+    return _localTotal(monthStart, end);
+  }
+
+  /// Money that will come in over all of [month].
+  double expectedDuring(DateTime month) {
+    if (expectedThisMonth != null && sameMonth(month, DateTime.now())) {
+      return expectedThisMonth!;
+    }
+    return _localTotal(DateTime(month.year, month.month, 1), DateTime(month.year, month.month + 1, 0));
+  }
+
+  /// The next payday after today. Uses the server's date when there is one.
+  DateTime? get upcomingPayDate {
+    if (nextPayDate != null) return nextPayDate;
+    final anchor = anchorDate;
+    if (kind != IncomeKind.paycheck || anchor == null) return null;
+    final today = _dateOnly(DateTime.now());
+    if (anchor.isAfter(today)) return _dateOnly(anchor); // schedule hasn't started, and the anchor is a payday
+    final tomorrow = DateTime(today.year, today.month, today.day + 1);
+    final searchEnd = DateTime(today.year, today.month + 2, today.day); // longest gap is about a month
+    final dates = payDatesBetween(frequency ?? PayFrequency.monthly, anchor, secondPayDay, tomorrow, searchEnd);
+    return dates.isEmpty ? null : dates.first;
+  }
+
+  /// Calculated on the device, for local-only mode or when the server can't be reached.
+  double _localTotal(DateTime from, DateTime to) {
+    if (kind == IncomeKind.paycheck) {
+      final anchor = anchorDate;
+      if (anchor == null) return 0; // no payday picked, nothing to count from
+      final count = payDatesBetween(frequency ?? PayFrequency.monthly, anchor, secondPayDay, from, to).length;
+      return count * paycheckAmount;
+    }
+    var total = 0.0;
+    for (final payment in payments) {
+      final day = _dateOnly(payment.date);
+      if (!day.isBefore(from) && !day.isAfter(to)) total += payment.amount;
+    }
+    return total;
   }
 
   Map<String, dynamic> toJson() => {
@@ -398,6 +530,8 @@ class IncomeSource {
         'kind': kind.name,
         'frequency': frequency?.name,
         'paycheckAmount': paycheckAmount,
+        'anchorDate': anchorDate?.toIso8601String(),
+        'secondPayDay': secondPayDay,
         'payments': payments.map((payment) => payment.toJson()).toList(),
       };
 
@@ -409,6 +543,8 @@ class IncomeSource {
       kind: IncomeKind.values.asNameMap()[json['kind']] ?? IncomeKind.paycheck,
       frequency: PayFrequency.values.asNameMap()[json['frequency']],
       paycheckAmount: (json['paycheckAmount'] as num?)?.toDouble() ?? 0,
+      anchorDate: DateTime.tryParse(json['anchorDate'] as String? ?? ''),
+      secondPayDay: (json['secondPayDay'] as num?)?.toInt(),
       payments: _mapList(json['payments'], IncomePayment.fromJson),
     );
   }

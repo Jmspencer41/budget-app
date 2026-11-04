@@ -234,11 +234,24 @@ class Ledger extends ChangeNotifier {
     _touch();
   }
 
-  void updatePaycheck(IncomeSource source, {required String name, required double amount, required PayFrequency frequency}) {
+  void updatePaycheck(
+    IncomeSource source, {
+    required String name,
+    required double amount,
+    required PayFrequency frequency,
+    DateTime? anchorDate,
+    int? secondPayDay,
+  }) {
     source
       ..name = name
       ..paycheckAmount = amount
-      ..frequency = frequency;
+      ..frequency = frequency
+      ..anchorDate = anchorDate ?? source.anchorDate
+      ..secondPayDay = frequency == PayFrequency.semimonthly ? (secondPayDay ?? source.secondPayDay) : null;
+    if (_remote) {
+      _remoteAction(() => _api.updateIncome(source)); // saves to the server, then reloads the fresh numbers
+      return;
+    }
     _touch();
   }
 
@@ -291,6 +304,18 @@ class Ledger extends ChangeNotifier {
 
   double expectedIncomeDuring(DateTime month) {
     return incomes.fold(0, (sum, income) => sum + income.expectedDuring(month));
+  }
+  
+  double receivedIncomeDuring(DateTime month) {
+    return incomes.fold(0, (sum, income) => sum + income.receivedDuring(month));
+  }
+
+  double receivedIncomeFor(String budgetId, DateTime month) {
+    return incomeFor(budgetId).fold(0, (sum, income) => sum + income.receivedDuring(month));
+  }
+
+  double expectedIncomeFor(String budgetId, DateTime month) {
+    return incomeFor(budgetId).fold(0, (sum, income) => sum + income.expectedDuring(month));
   }
 
   double spentDuring(DateTime month) {

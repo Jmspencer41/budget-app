@@ -14,6 +14,6 @@ public record CreateIncomeSourceRequest (
 	@Min(0) long amountCents,
 	@NotNull Frequency frequency,
 	boolean autoGenerate,
-	LocalDate nextPayDate
-	
+	LocalDate anchorDate,
+	Integer secondPayDay
 ) {}

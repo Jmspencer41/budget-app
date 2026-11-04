@@ -93,16 +93,30 @@ class BudgetApi {
   }
 
   Future<void> addIncome(IncomeSource source, String userId) async {
-    final automatic = source.kind.isAutomatic;
     await _object('POST', '/api/incomesources', {
       'userId': userId,
       'budgetId': source.budgetId,
+      'autoGenerate': source.kind.isAutomatic,
+      ..._incomeSchedule(source),
+    });
+  }
+
+  Future<void> updateIncome(IncomeSource source) async {
+    await _object('PUT', '/api/incomesources/${source.id}', _incomeSchedule(source));
+  }
+
+  /// The fields that POST and PUT share: name, amount, and the pay schedule.
+  Map<String, dynamic> _incomeSchedule(IncomeSource source) {
+    final automatic = source.kind.isAutomatic;
+    final frequency = source.frequency ?? PayFrequency.monthly;
+    return {
       'name': source.name,
       'amountCents': automatic ? _cents(source.paycheckAmount) : 0,
-      'frequency': automatic ? _apiFrequency(source.frequency ?? PayFrequency.monthly) : 'IRREGULAR',
-      'autoGenerate': automatic,
-      'nextPayDate': _date(DateTime.now()),
-    });
+      'frequency': automatic ? _apiFrequency(frequency) : 'IRREGULAR',
+      // Phase 6 adds a date picker. Until then a new paycheck starts today.
+      'anchorDate': automatic ? _date(source.anchorDate ?? DateTime.now()) : null,
+      'secondPayDay': automatic && frequency == PayFrequency.semimonthly ? source.secondPayDay : null,
+    };
   }
 
   Future<void> logPayment({
@@ -189,8 +203,9 @@ class BudgetApi {
 
   Future<List<IncomeSource>> loadIncome(List<Budget> budgets) async {
     final sources = <IncomeSource>[];
+    final asOf = _date(DateTime.now()); // the device's own date, so the server uses the user's timezone
     for (final budget in budgets) {
-      final rows = await _list('/api/incomesources/budget/${budget.id}');
+      final rows = await _list('/api/incomesources/budget/${budget.id}?asOf=$asOf');
       for (final row in rows) {
         final id = row['id'] as String;
         final automatic = row['autoGenerate'] == true;
@@ -203,6 +218,11 @@ class BudgetApi {
             kind: automatic ? IncomeKind.paycheck : IncomeKind.sideHustle,
             frequency: _payFrequency(row['frequency'] as String?),
             paycheckAmount: _dollars(row['amountCents']),
+            anchorDate: DateTime.tryParse(row['anchorDate'] as String? ?? ''),
+            secondPayDay: (row['secondPayDay'] as num?)?.toInt(),
+            receivedThisMonth: _dollars(row['receivedThisMonthCents']),
+            expectedThisMonth: _dollars(row['expectedThisMonthCents']),
+            nextPayDate: DateTime.tryParse(row['nextPayDate'] as String? ?? ''),
             payments: [
               for (final entry in entries)
                 IncomePayment(
@@ -290,6 +310,7 @@ class BudgetApi {
     final response = switch (method) {
       'GET' => await http.get(uri, headers: headers),
       'POST' => await http.post(uri, headers: headers, body: jsonEncode(body)),
+      'PUT' => await http.put(uri, headers: headers, body: jsonEncode(body)),
       'DELETE' => await http.delete(uri, headers: headers),
       _ => throw ApiException('Unsupported $method'),
     };
@@ -333,6 +354,8 @@ String _apiFrequency(PayFrequency frequency) {
       return 'WEEKLY';
     case PayFrequency.biweekly:
       return 'BIWEEKLY';
+    case PayFrequency.semimonthly:
+      return 'SEMIMONTHLY';
     case PayFrequency.monthly:
       return 'MONTHLY';
   }
@@ -344,6 +367,8 @@ PayFrequency _payFrequency(String? raw) {
       return PayFrequency.weekly;
     case 'BIWEEKLY':
       return PayFrequency.biweekly;
+    case 'SEMIMONTHLY':
+      return PayFrequency.semimonthly;
     default:
       return PayFrequency.monthly;
   }

@@ -36,4 +36,13 @@ public class IncomeEntryService {
 	public List<IncomeEntry> listForSource(UUID incomeSourceId) {
 		return incomeEntryRepository.findByIncomeSourceId(incomeSourceId);
 	}
+	
+	public long getTotalCentsBetween(UUID incomeSourceId, LocalDate start, LocalDate end) { // sum of logged entries from start to end, both days included
+		List<IncomeEntry> entries = incomeEntryRepository.findByIncomeSourceIdAndReceivedDateBetween(incomeSourceId, start, end);
+		long total = 0;
+		for (IncomeEntry entry : entries) {
+			total += entry.getAmountCents();
+		}
+		return total;
+	}
 }

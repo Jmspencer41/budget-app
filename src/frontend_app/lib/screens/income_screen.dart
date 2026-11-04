@@ -106,6 +106,8 @@ class IncomeRow extends StatelessWidget {
         name: updated.name,
         amount: updated.paycheckAmount,
         frequency: updated.frequency ?? PayFrequency.monthly,
+        anchorDate: updated.anchorDate,
+        secondPayDay: updated.secondPayDay,
       );
     }
   }
@@ -119,9 +121,13 @@ class IncomeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final isPaycheck = source.kind.isAutomatic;
-    final subtitle = isPaycheck
-        ? '$budgetName · ${source.frequency?.label ?? 'Monthly'} · ${money(source.expectedDuring(now))} / month'
-        : '$budgetName · Manual · ${money(source.expectedDuring(now))} this month';
+    final nextPay = source.upcomingPayDate;
+    final schedule = isPaycheck
+        ? '$budgetName · ${source.frequency?.label ?? 'Monthly'}${nextPay != null ? ' · next ${dateShort(nextPay)}' : ''}'
+        : '$budgetName · Manual';
+    final monthLine = isPaycheck
+        ? '${money(source.receivedDuring(now))} so far · ${money(source.expectedDuring(now))} this month'
+        : '${money(source.receivedDuring(now))} logged this month';
     final amount = isPaycheck ? source.paycheckAmount : source.totalLogged;
 
     return InkWell(
@@ -135,7 +141,8 @@ class IncomeRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(source.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text(subtitle, style: const TextStyle(fontSize: 12, color: AppColors.inkFade)),
+                  Text(schedule, style: const TextStyle(fontSize: 12, color: AppColors.inkFade)),
+                  Text(monthLine, style: const TextStyle(fontSize: 12, color: AppColors.inkFade)),
                 ],
               ),
             ),
@@ -232,7 +239,7 @@ class _SideHustleScreenState extends State<SideHustleScreen> {
                     Text(money(source.totalLogged), style: ledgerNumber(size: 28, color: AppColors.moss)),
                     const SizedBox(height: 4),
                     Text(
-                      '${money(source.expectedDuring(now))} this month',
+                      '${money(source.receivedDuring(now))} this month',
                       style: const TextStyle(color: AppColors.inkFade, fontSize: 13),
                     ),
                   ],

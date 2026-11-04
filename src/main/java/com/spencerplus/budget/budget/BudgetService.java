@@ -10,6 +10,9 @@ import com.spencerplus.budget.budgetmembers.BudgetMemberRepository;
 import com.spencerplus.budget.category.Category;
 import com.spencerplus.budget.category.CategoryRepository;
 import com.spencerplus.budget.category.CategoryService;
+import com.spencerplus.budget.incomesource.IncomeSource;
+import com.spencerplus.budget.incomesource.IncomeSourceService;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,16 +24,19 @@ public class BudgetService {
 	private final CategoryRepository categoryRepository;
 	private final CategoryService categoryService;
 	private final BudgetMemberRepository budgetMemberRepository;
+	private final IncomeSourceService incomeSourceService;
 	
 	public BudgetService(
 			BudgetRepository budgetRepository,
 			CategoryRepository categoryRepository,
 			CategoryService categoryService,
-			BudgetMemberRepository budgetMemberRepository) {
+			BudgetMemberRepository budgetMemberRepository,
+			IncomeSourceService incomeSourceService) {
 		this.budgetRepository = budgetRepository;
 		this.categoryRepository = categoryRepository;
 		this.categoryService = categoryService;
 		this.budgetMemberRepository = budgetMemberRepository;
+		this.incomeSourceService = incomeSourceService;
 	}
 	
 	@Transactional
@@ -85,5 +91,19 @@ public class BudgetService {
 		}
 		
 		return totalRemaining;
+	}
+	
+	public BudgetIncomeResponse getIncome(UUID budgetId, LocalDate asOf) { // every income source on this budget, added together
+		if (!budgetRepository.existsById(budgetId)) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Budget not found");
+		}
+		
+		long received = 0;
+		long expected = 0;
+		for (IncomeSource incomeSource : incomeSourceService.listForBudget(budgetId)) { // goes through the service, not the repository
+			received += incomeSourceService.getReceivedCents(incomeSource, asOf);
+			expected += incomeSourceService.getExpectedCents(incomeSource, asOf);
+		}
+		return new BudgetIncomeResponse(budgetId, asOf, received, expected);
 	}
 }

@@ -4,6 +4,8 @@ import jakarta.validation.Valid;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -46,6 +48,16 @@ public class BudgetController {
     @GetMapping("{id}/remaining")
     public long getRemainingBalance(@PathVariable UUID id) {
     	return budgetService.getRemainingBalance(id);
+    }
+    
+    @GetMapping("/{id}/income")
+    public BudgetIncomeResponse getIncome(
+    		@PathVariable UUID id,
+    		@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+    	if (asOf == null) {
+    		asOf = LocalDate.now(); // no date sent, so use the server's today
+    	}
+    	return budgetService.getIncome(id, asOf);
     }
     
 }
