@@ -2,7 +2,7 @@
 
 This document explains how the whole project works: what each piece does, how the pieces talk to each other, how data moves from a button tap in the app to a row in Postgres, and what is still missing or broken. It is written so a new contributor (or an AI assistant) can read it once and understand the codebase without opening every file.
 
-Last reviewed against the code: November 3, 2026. See [section 17](#17-change-log) for what changed since the November 1 review.
+Last reviewed against the code: November 4, 2026. See [section 17](#17-change-log) for what changed since the November 3 review.
 
 ---
 
@@ -16,7 +16,7 @@ Last reviewed against the code: November 3, 2026. See [section 17](#17-change-lo
 6. [Database (Postgres and Flyway)](#6-database-postgres-and-flyway)
 7. [Backend features, one by one](#7-backend-features-one-by-one)
 8. [API reference](#8-api-reference)
-9. [Derived values and category periods](#9-derived-values-and-category-periods)
+9. [Derived values, category periods, and income](#9-derived-values-category-periods-and-income)
 10. [Frontend (Flutter)](#10-frontend-flutter)
 11. [How the frontend maps to the backend](#11-how-the-frontend-maps-to-the-backend)
 12. [Docker build and deployment](#12-docker-build-and-deployment)
@@ -36,8 +36,8 @@ Inside a budget:
 
 - **Categories** are either a **recurring spending limit** (for example, $400 a month for groceries) or a **savings goal** (for example, $2,000 for a vacation). Recurring categories reset on their own schedule (daily through yearly), and every past period can be looked back at.
 - **Transactions** are purchases logged against a category by a specific user. They count against a limit or toward a goal.
-- **Income sources** are things like a paycheck or a side job. Each one belongs to one user and sends money to one budget.
-- **Income entries** are individual payments received from an income source.
+- **Income sources** are things like a paycheck or a side job. Each one belongs to one user and sends money to one budget. A scheduled paycheck has a frequency and an **anchor date** (one real payday), and every payday is calculated from it, so the app can show how much has actually come in this month so far, not a monthly average.
+- **Income entries** are individual payments logged by hand for irregular income (a side hustle).
 
 It is **API first**. The backend is a Spring Boot REST API that returns JSON. The client is a Flutter app that can build for web, Android, iOS, Linux, macOS, and Windows from one codebase. No client ever talks to the database directly.
 
@@ -63,6 +63,8 @@ budget-app/
 ├── linuxInstructions.md         Step by step home lab setup on Linux
 ├── windowsInstructions.md       Step by step setup on Windows with Docker Desktop
 ├── CONTEXT.md                   This file
+├── scripts/
+│   └── seed_test_data.sql       Test data for manual testing (section 16)
 ├── README.md
 ├── LICENSE                      AGPL-3.0
 ├── docs/
@@ -70,6 +72,8 @@ budget-app/
 │   └── sql_table_diagram.drawio Database diagram (open with draw.io)
 ├── target/                      Maven build output. Generated. Do not edit.
 └── src/
+    ├── test/java/com/spencerplus/budget/
+    │   └── incomesource/IncomeSourcePayDatesTest.java   JUnit tests for the pay date math (no database)
     ├── main/
     │   ├── java/com/spencerplus/budget/
     │   │   ├── BudgetApplication.java     Spring Boot entry point (main method)
@@ -89,7 +93,7 @@ budget-app/
         ├── pubspec.yaml                   Flutter dependencies (like pom.xml)
         ├── lib/                           ALL the app's Dart code lives here
         │   └── screens/                   One file per screen group (account, overview, budgets, category history, income)
-        ├── test/                          Flutter widget tests
+        ├── test/                          Flutter widget tests and pay_dates_test.dart
         ├── web/                           Web shell: index.html, manifest, favicon, icons, logo source images
         ├── android/ ios/ linux/ macos/ windows/   Native shells per platform (mostly generated)
         └── analysis_options.yaml          Lint rules
@@ -201,6 +205,18 @@ flutter run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8080  # Andr
 
 Since Flutter is not installed locally, Dart compile errors show up in the `flutter build web` step of `docker compose up -d --build`.
 
+### Running the tests
+
+- **Java (JUnit):** in Eclipse, right click `IncomeSourcePayDatesTest.java` (under `src/test/java`) → **Run As → JUnit Test**. Maven is not installed in Josh's terminal (Eclipse has its own); with Maven installed, `mvn test -Dtest=IncomeSourcePayDatesTest`. These tests need no database. The Docker build skips tests (`-DskipTests`).
+- **Dart:** Flutter is not installed locally, so the tests run inside the Flutter image the Docker build already uses. The project folder is mounted read only and copied inside the container, so nothing is written back:
+
+```bash
+docker run --rm -v "$PWD/src/frontend_app":/src:ro,z ghcr.io/cirruslabs/flutter:stable \
+  sh -c "cp -r /src /app && cd /app && flutter pub get && flutter test test/pay_dates_test.dart"
+```
+
+The `z` on the volume is for SELinux on Fedora, which otherwise blocks the container from reading the files.
+
 ---
 
 ## 5. Backend (Spring Boot)
@@ -219,7 +235,7 @@ Since Flutter is not installed locally, Dart compile errors show up in the `flut
 | Security | `spring-boot-starter-security` (BCrypt hashing, CORS) |
 | Validation | `spring-boot-starter-validation` (`@NotNull`, `@NotBlank`, `@Positive`, `@Min`) |
 | JWT | `jjwt-api`, `jjwt-impl`, `jjwt-jackson` 0.12.6. **In the pom but not used yet.** |
-| Testing | `spring-boot-starter-test`, `spring-security-test`, Testcontainers 1.20.1 (`junit-jupiter`, `postgresql`). **No tests written yet.** |
+| Testing | `spring-boot-starter-test`, `spring-security-test`, Testcontainers 1.20.1 (`junit-jupiter`, `postgresql`). One test class so far: `IncomeSourcePayDatesTest` (plain JUnit, no Spring context, no database). |
 | Packaging | `spring-boot-maven-plugin` builds one runnable "fat jar": `budget-app-0.0.1-SNAPSHOT.jar` |
 
 No Lombok. Getters and setters are written by hand.
@@ -268,11 +284,11 @@ Package root: `com.spencerplus.budget`. Every feature lives in its own subpackag
 
 **Entities are never returned directly.** This keeps internal fields (most importantly `User.passwordHash`) out of API responses and lets the database shape change without changing the JSON.
 
-**Layering rule:** Controller → Service → Repository. A Service may use another feature's repository or service (for example `BudgetService` uses `CategoryRepository`, `CategoryService`, and `BudgetMemberRepository`; `CategoryService` uses `TransactionRepository`).
+**Layering rule:** Controller → Service → Repository. A Service may use another feature's repository or service (for example `BudgetService` uses `CategoryRepository`, `CategoryService`, `BudgetMemberRepository`, and `IncomeSourceService`; `CategoryService` uses `TransactionRepository`). The income code goes through services only: `BudgetService` → `IncomeSourceService` → `IncomeEntryService` → `IncomeEntryRepository`.
 
 **Delete pattern** (used by every feature): the controller has `@DeleteMapping("/{id}")` returning `void` (empty 200). The service checks `existsById` (or `findById`) first and throws `ResponseStatusException(HttpStatus.NOT_FOUND, "... not found")` if the row is missing, then calls `deleteById`. Child rows are removed by the database cascade (V8), not by Java.
 
-**Computed values in responses:** when a response needs something that is calculated (like a category's current period), the **service** computes it and the controller passes it into `fromEntity`. The response record stays a plain mapper with no logic of its own.
+**Computed values in responses:** when a response needs something that is calculated (like a category's current period), the **service** computes it and the controller passes it into `fromEntity`. The response record stays a plain mapper with no logic of its own. Income sources go one step further: `IncomeSourceService.toResponse(source, asOf)` calculates the three month values and calls `IncomeSourceResponse.fromEntity` itself, so the controller just calls `toResponse`.
 
 ### 5.5 How entities relate in Java
 
@@ -299,12 +315,12 @@ What this means today: **there is no authentication.** Login only checks the pas
 - Request records use Jakarta validation annotations. The controller parameter has `@Valid`, so a bad body returns **400 Bad Request** before the service runs.
 - An enum value that does not exist (for example `"role": "ADMIN"`) or a badly formatted UUID or date fails JSON parsing and also returns **400**.
 - Services throw `ResponseStatusException` for expected problems:
-  - **400**: a recurring category without a `frequency` and `anchorDate`, or a goal with either one; a history request with `periods` outside 1 to 60; a history request for a goal; a transaction filter where `from` is after `to`.
+  - **400**: a recurring category without a `frequency` and `anchorDate`, or a goal with either one; a history request with `periods` outside 1 to 60; a history request for a goal; a transaction filter where `from` is after `to`; an income source that breaks the schedule rules (section 7.6), on create or update; a frequency that does not exist (for example `DAILY` for income).
   - **401**: wrong password on login.
   - **404**: a user, budget, category, transaction, member, income source, or income entry that does not exist (every delete, `GET /api/categories/{id}/remaining`, and `/history`).
   - **409**: deleting the `OWNER` membership.
 - Everything else that goes wrong becomes **500**. There is no `@ControllerAdvice` global error handler yet. Examples: a duplicate email on signup, a duplicate budget member, a foreign key that points at nothing (for example a category for a budget ID that does not exist).
-- The `categories` table also has a **CHECK constraint** for the anchor rule (section 6.2). The service validation catches bad input first, so the constraint is a safety net; if it ever fires, it surfaces as a 500.
+- The `categories` and `income_sources` tables also have **CHECK constraints** for their anchor rules (section 6.2). The service validation catches bad input first, so the constraints are a safety net; if one ever fires, it surfaces as a 500.
 - Spring's default error body looks like `{"timestamp": "...", "status": 400, "error": "Bad Request", "path": "/api/..."}`. The exception message is not included by default.
 
 ### 5.8 JSON format
@@ -315,10 +331,10 @@ What this means today: **there is no authentication.** Login only checks the pas
 - `LocalDateTime` → `"2026-10-27T23:24:29.508124"` (no time zone)
 - Enums → their name as a string: `"MONTHLY"`
 - Money → whole number of cents: `4250` means $42.50
-- Missing optional values → `null` (for example a goal's `frequency`, `anchorDate`, `periodStart`, `periodEnd`)
+- Missing optional values → `null` (for example a goal's `frequency`, `anchorDate`, `periodStart`, `periodEnd`, or irregular income's `anchorDate` and `nextPayDate`)
 - Endpoints that return a single `long` (totals, remaining) return a bare number, not an object.
 - Delete endpoints return an empty body with status 200.
-- Query parameter dates (`from`, `to`) use the same `yyyy-MM-dd` format.
+- Query parameter dates (`from`, `to`, `asOf`) use the same `yyyy-MM-dd` format.
 
 ---
 
@@ -333,7 +349,7 @@ Located in `src/main/resources/db/migration/`. **Never edit a migration that has
 | `V1__create_users_table.sql` | `users` |
 | `V2__create_budget_table.sql` | `budgets` (owner is a user) |
 | `V3__create_budget_members_table.sql` | `budget_members` (join table, unique per budget and user) |
-| `V4__create_income_sources_table.sql` | `income_sources` |
+| `V4__create_income_sources_table.sql` | `income_sources`, including `anchor_date`, `second_pay_day`, and three CHECK constraints |
 | `V5__create_income_entries_table.sql` | `income_entries` |
 | `V6__create_categories_table.sql` | `categories`, including `anchor_date` and its CHECK constraint |
 | `V7__create_transactions_table.sql` | `transactions` |
@@ -341,7 +357,11 @@ Located in `src/main/resources/db/migration/`. **Never edit a migration that has
 
 Note that income tables (V4, V5) were created before categories (V6) because of the Budget and Category redesign partway through the project.
 
-**One exception to the rule, made on purpose:** on November 3, 2026, `anchor_date` and its CHECK constraint were added by **editing V6** instead of adding V9. This was only acceptable because the app has never been released, so every existing database (Josh's and Philip's) could be wiped with `docker compose down -v`. Any database that ran the old V6 fails on startup with a Flyway checksum error until it is wiped. **After the first release, this is never acceptable again**; all schema changes go in new migrations.
+**One exception to the rule, made on purpose:** on November 3, 2026, `anchor_date` and its CHECK constraint were added by **editing V6** instead of adding V9. This was only acceptable because the app has never been released, so every existing database (Josh's and Philip's) could be wiped with `docker compose down -v`. Any database that ran the old V6 fails on startup with a Flyway checksum error until it is wiped.
+
+**The same exception was used once more** on November 4, 2026: **V4 was edited** to replace `next_pay_date` with `anchor_date`, add `second_pay_day`, and add three CHECK constraints (section 6.2). Every database had to be wiped with `docker compose down -v` again.
+
+**After the first release, this is never acceptable again**; all schema changes go in new migrations.
 
 ### 6.2 Tables
 
@@ -409,10 +429,14 @@ All primary keys are `UUID`. All tables have `created_at TIMESTAMP NOT NULL DEFA
 | `user_id` | UUID | NOT NULL, FK → `users.id` (who earns it) |
 | `budget_id` | UUID | NOT NULL, FK → `budgets.id` **ON DELETE CASCADE** |
 | `name` | VARCHAR(100) | NOT NULL |
-| `amount_cents` | BIGINT | NOT NULL. Expected amount per payment (0 for irregular income). |
-| `frequency` | VARCHAR(20) | NOT NULL. `DAILY, WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR` |
-| `auto_generate` | BOOLEAN | NOT NULL, default false. Stored, but **nothing acts on it yet**. |
-| `next_pay_date` | DATE | optional |
+| `amount_cents` | BIGINT | NOT NULL. Amount of each paycheck (0 for irregular income). |
+| `frequency` | VARCHAR(20) | NOT NULL. `WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR` (no `DAILY`) |
+| `auto_generate` | BOOLEAN | NOT NULL, default false. The client uses it to mean "scheduled paycheck" (true) or "manual income" (false). No scheduler acts on it. |
+| `anchor_date` | DATE | nullable. One real payday. Every payday is calculated from it (section 9.4). Required for every frequency except `IRREGULAR`, which must leave it null. |
+| `second_pay_day` | INTEGER | nullable. The second day of the month (1 to 31) for `SEMIMONTHLY`. Null for every other frequency. `INTEGER`, not `SMALLINT`, so Hibernate's `validate` accepts a plain `Integer` field. |
+| | | `CONSTRAINT chk_income_sources_frequency CHECK (frequency IN ('WEEKLY', 'BIWEEKLY', 'SEMIMONTHLY', 'MONTHLY', 'IRREGULAR'))` |
+| | | `CONSTRAINT chk_income_sources_anchor_date CHECK ((frequency = 'IRREGULAR' AND anchor_date IS NULL) OR (frequency <> 'IRREGULAR' AND anchor_date IS NOT NULL))` |
+| | | `CONSTRAINT chk_income_sources_second_pay_day CHECK ((frequency = 'SEMIMONTHLY' AND second_pay_day IS NOT NULL AND second_pay_day BETWEEN 1 AND 31) OR (frequency <> 'SEMIMONTHLY' AND second_pay_day IS NULL))`. The explicit `IS NOT NULL` matters: `NULL BETWEEN 1 AND 31` is NULL, and a CHECK passes on NULL. |
 
 **`income_entries`**
 
@@ -449,6 +473,9 @@ Foreign keys pointing at `users` have **no cascade**. There is no endpoint to de
 - **One anchor date per category** defines all of its periods. The client turns user friendly choices ("1st of the month", "weeks start on Friday", "calendar quarters") into that one date, so the backend only has one period rule per frequency.
 - **Categories cannot be edited.** Frequency, amount, and anchor are fixed when a category is created. Without editing, history computed from current settings is always accurate. To test different settings, change the row directly in `psql`; history recalculates immediately because nothing is stored.
 - **One income source has exactly one destination budget.** A paycheck split between two budgets is modeled as two income sources.
+- **Scheduled income is calculated, not logged.** A paycheck stores its amount, frequency, and one anchor payday. "Received this month" is the amount times the number of paydays from the 1st through today; nothing writes an income entry on payday. The trade off is that every paycheck is assumed to be the same amount (see 14.1).
+- **Irregular income is logged.** Side hustle money is only counted when someone logs an income entry for it.
+- **The anchor is a fixed payday, not a "next" payday.** A stored next payday would go stale after every payday; a fixed anchor never needs updating, the same idea as category periods.
 - **Creating a budget also creates the owner's `OWNER` membership row**, in the same database transaction.
 - **The owner membership cannot be deleted** on its own (409). It only goes away when the whole budget is deleted.
 
@@ -481,13 +508,16 @@ Foreign keys pointing at `users` have **no cascade**. There is no endpoint to de
   - `deleteBudget(budgetId)`: throws 404 if the budget does not exist, otherwise `deleteById`. The database cascade removes everything under it.
   - `getTotal(budgetId)`: see section 9.
   - `getRemainingBalance(budgetId)`: see section 9.
+  - `getIncome(budgetId, asOf)`: 404 if the budget does not exist. Adds up `getReceivedCents` and `getExpectedCents` for every income source on the budget, through `IncomeSourceService` (not the repository). Returns a `BudgetIncomeResponse`.
 - **Controller** `BudgetController` at `/api/budgets`:
   - `POST /api/budgets` with `CreateBudgetRequest(title, ownerId)`. `title` is `@NotBlank`. `ownerId` has no `@NotNull`, so a missing owner reaches the database and returns 500.
   - `GET /api/budgets?userId=...`
   - `DELETE /api/budgets/{id}`
   - `GET /api/budgets/{id}/total`
   - `GET /api/budgets/{id}/remaining`
+  - `GET /api/budgets/{id}/income?asOf=yyyy-MM-dd` (`asOf` optional, defaults to the server's today)
 - **Response** `BudgetResponse`: `id, title, ownerId, createdAt`.
+- **Response** `BudgetIncomeResponse`: `budgetId, asOf, receivedThisMonthCents, expectedThisMonthCents`. The client does not call this endpoint; it adds up the per source numbers it already has. It is there for curl testing and future clients.
 
 ### 7.3 `budgetmembers`
 
@@ -548,22 +578,37 @@ Nothing checks that the user logging (or deleting) the transaction is a member o
 
 ### 7.6 `incomesource`
 
-- **Entity** `IncomeSource`: `id, userId, budgetId, name, amountCents, frequency, autoGenerate, nextPayDate, createdAt`. Nested enum `Frequency { DAILY, WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR }` (different from the category frequency enum: it has `SEMIMONTHLY` and `IRREGULAR`, and no quarterly or yearly).
+- **Entity** `IncomeSource`: `id, userId, budgetId, name, amountCents, frequency, autoGenerate, anchorDate, secondPayDay, createdAt`. Nested enum `Frequency { WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR }` (different from the category enum: it has `SEMIMONTHLY` and `IRREGULAR`, and no daily, quarterly, or yearly). `anchorDate` is a nullable `LocalDate`; `secondPayDay` is a nullable `Integer`.
+- **Records**:
+  - `CreateIncomeSourceRequest(userId @NotNull, budgetId @NotNull, name @NotBlank, amountCents @Min(0), frequency @NotNull, autoGenerate, anchorDate, secondPayDay)`. `anchorDate` and `secondPayDay` have no annotation because whether they are required depends on the frequency; the service checks.
+  - `UpdateIncomeSourceRequest(name @NotBlank, amountCents @Min(0), frequency @NotNull, anchorDate, secondPayDay)`. No `userId` or `budgetId`: an edit cannot move income to another person or budget. `autoGenerate` is not editable either.
+  - `IncomeSourceResponse(id, userId, budgetId, name, amountCents, frequency, autoGenerate, anchorDate, secondPayDay, receivedThisMonthCents, expectedThisMonthCents, nextPayDate, createdAt)`. The last three before `createdAt` are calculated. `fromEntity(source, receivedThisMonthCents, expectedThisMonthCents, nextPayDate)`.
 - **Repository** `IncomeSourceRepository`: `findByUserId` (unused), `findByBudgetId`.
-- **Service** `IncomeSourceService`: `createIncomeSource(...)`, `deleteIncomeSource(incomeSourceId)` (404 if missing; its entries cascade), `listForBudget(budgetId)`.
+- **Service** `IncomeSourceService` (depends on `IncomeSourceRepository` and `IncomeEntryService`):
+  - `createIncomeSource(userId, budgetId, name, amountCents, frequency, autoGenerate, anchorDate, secondPayDay)`: validates the schedule, then saves.
+  - `updateIncomeSource(id, name, amountCents, frequency, anchorDate, secondPayDay)`: 404 if missing, same validation, then saves.
+  - `deleteIncomeSource(id)`: 404 if missing; its entries cascade.
+  - `listForBudget(budgetId)`.
+  - `toResponse(source, asOf)`: calls the three month methods and builds the response.
+  - `validateSchedule` (private), the same rules as the CHECK constraints, as clean **400**s:
+    - `IRREGULAR` must have no `anchorDate` and no `secondPayDay`.
+    - Every other frequency needs an `anchorDate`.
+    - `SEMIMONTHLY` needs a `secondPayDay` from 1 to 31 that is **different from the anchor's day** (the same day twice would count every paycheck double). The database does not check this last rule.
+    - No other frequency may have a `secondPayDay`.
+  - `getPayDates(source, from, to)`: every payday in the range, both ends included, oldest first. Section 9.4.
+  - `getReceivedCents(source, asOf)`, `getExpectedCents(source, asOf)`, `getNextPayDate(source, asOf)`: section 9.4.
+  - Private helpers: `addEveryNDays`, `addMonthly`, `addSemimonthly`.
 - **Controller** `IncomeSourceController` at `/api/incomesources`:
-  - `POST /api/incomesources` with `CreateIncomeSourceRequest(userId @NotNull, budgetId @NotNull, name @NotBlank, amountCents @Min(0), frequency @NotNull, autoGenerate, nextPayDate)`.
-  - `GET /api/incomesources/budget/{budgetId}`. **Uses a Stream** (`.stream().map(...).toList()`), which goes against the plain loop convention.
+  - `POST /api/incomesources`. The response uses the server's today.
+  - `GET /api/incomesources/budget/{budgetId}?asOf=yyyy-MM-dd`. `asOf` is optional (`@RequestParam(required = false)` with `@DateTimeFormat(iso = DateTimeFormat.ISO.DATE)`) and defaults to `LocalDate.now()`. The client always sends the device's own date, so "today" follows the user's time zone, not the server's. Uses a plain for loop (the old Stream is gone).
+  - `PUT /api/incomesources/{id}` with `UpdateIncomeSourceRequest`. The response uses the server's today.
   - `DELETE /api/incomesources/{id}`
-- **Response** `IncomeSourceResponse`: all entity fields.
-
-`autoGenerate` and `nextPayDate` are stored but no scheduler exists to create income entries automatically.
 
 ### 7.7 `incomeentry`
 
 - **Entity** `IncomeEntry`: `id, incomeSourceId, amountCents, receivedDate, createdAt`.
-- **Repository** `IncomeEntryRepository`: `findByIncomeSourceId`.
-- **Service** `IncomeEntryService`: `createIncomeEntry(...)`, `deleteIncomeEntry(incomeEntryId)` (404 if missing), `listForSource(incomeSourceId)`.
+- **Repository** `IncomeEntryRepository`: `findByIncomeSourceId`, `findByIncomeSourceIdAndReceivedDateBetween` (both ends inclusive).
+- **Service** `IncomeEntryService`: `createIncomeEntry(...)`, `deleteIncomeEntry(incomeEntryId)` (404 if missing), `listForSource(incomeSourceId)`, and `getTotalCentsBetween(incomeSourceId, start, end)` (plain for loop), which `IncomeSourceService` uses for irregular income.
 - **Controller** `IncomeEntryController` at `/api/incomeentries`:
   - `POST /api/incomeentries` with `CreateIncomeEntryRequest(incomeSourceId @NotNull, amountCents @Positive, receivedDate @NotNull)`.
   - `GET /api/incomeentries/source/{incomeSourceId}`. **Also uses a Stream.**
@@ -586,6 +631,7 @@ Base URL: `http://localhost:8080` (or wherever the container runs). All bodies a
 | DELETE | `/api/budgets/{id}` | | empty 200, or 404 | |
 | GET | `/api/budgets/{id}/total` | | number (cents) | |
 | GET | `/api/budgets/{id}/remaining` | | number (cents) | |
+| GET | `/api/budgets/{id}/income?asOf=` | `asOf` optional, `yyyy-MM-dd` | `BudgetIncomeResponse`, or 404 | yes |
 | POST | `/api/budgetmembers` | `budgetId, userId, role` | `BudgetMemberResponse` | |
 | GET | `/api/budgetmembers/budget/{budgetId}` | | `[{id, budgetId, userId, name, role}]` | yes |
 | DELETE | `/api/budgetmembers/{id}` | membership ID | empty 200, 404, or 409 (owner) | |
@@ -597,14 +643,15 @@ Base URL: `http://localhost:8080` (or wherever the container runs). All bodies a
 | POST | `/api/transactions` | `categoryId, userId, merchant?, description?, amountCents, transactionDate` | `TransactionResponse` | yes |
 | GET | `/api/transactions/category/{categoryId}?from=&to=` | both optional, `yyyy-MM-dd` | `TransactionResponse[]`, or 400 if `from` > `to` | yes |
 | DELETE | `/api/transactions/{id}` | | empty 200, or 404 | |
-| POST | `/api/incomesources` | `userId, budgetId, name, amountCents, frequency, autoGenerate, nextPayDate?` | `IncomeSourceResponse` | |
-| GET | `/api/incomesources/budget/{budgetId}` | | `IncomeSourceResponse[]` | |
+| POST | `/api/incomesources` | `userId, budgetId, name, amountCents, frequency, autoGenerate, anchorDate?, secondPayDay?` | `IncomeSourceResponse`, or 400 if the schedule rules are broken | yes |
+| GET | `/api/incomesources/budget/{budgetId}?asOf=` | `asOf` optional, `yyyy-MM-dd` | `IncomeSourceResponse[]` with the month values for `asOf` | yes |
+| PUT | `/api/incomesources/{id}` | `name, amountCents, frequency, anchorDate?, secondPayDay?` | `IncomeSourceResponse`, or 400/404 | yes |
 | DELETE | `/api/incomesources/{id}` | | empty 200, or 404 | |
 | POST | `/api/incomeentries` | `incomeSourceId, amountCents, receivedDate` | `IncomeEntryResponse` | |
 | GET | `/api/incomeentries/source/{incomeSourceId}` | | `IncomeEntryResponse[]` | |
 | DELETE | `/api/incomeentries/{id}` | | empty 200, or 404 | |
 
-**Not implemented yet:** any `PUT`/`PATCH` (update) endpoint, and any delete for users.
+**Not implemented yet:** update endpoints for everything except income sources (`PUT /api/incomesources/{id}` is the only one), and any delete for users.
 
 ### Category JSON examples
 
@@ -631,6 +678,36 @@ One row from `GET /api/categories/{id}/history`:
 
 ```json
 { "periodStart": "2026-08-01", "periodEnd": "2026-08-31", "limitCents": 100000, "spentCents": 117120, "remainingCents": -17120 }
+```
+
+### Income JSON examples
+
+A biweekly paycheck in `GET /api/incomesources/budget/{budgetId}?asOf=2026-11-04`:
+
+```json
+{
+  "id": "138c5d4c-...",
+  "userId": "e74bf673-...",
+  "budgetId": "fd7b50c8-...",
+  "name": "Paycheck",
+  "amountCents": 200000,
+  "frequency": "BIWEEKLY",
+  "autoGenerate": true,
+  "anchorDate": "2026-10-24",
+  "secondPayDay": null,
+  "receivedThisMonthCents": 0,
+  "expectedThisMonthCents": 400000,
+  "nextPayDate": "2026-11-07",
+  "createdAt": "2026-11-04T20:43:22.581626"
+}
+```
+
+A twice a month paycheck has `"frequency": "SEMIMONTHLY"` and a `secondPayDay` (for example `15` with an anchor on the 1st). Irregular income has `"frequency": "IRREGULAR"`, `"amountCents": 0`, and `null` for `anchorDate`, `secondPayDay`, and `nextPayDate`; its received and expected values come from logged income entries.
+
+`GET /api/budgets/{id}/income?asOf=2026-11-21`:
+
+```json
+{ "budgetId": "fd7b50c8-...", "asOf": "2026-11-21", "receivedThisMonthCents": 1100000, "expectedThisMonthCents": 1100000 }
 ```
 
 ### Example walkthrough with curl
@@ -675,13 +752,29 @@ curl -s "http://localhost:8080/api/transactions/category/REAL_CATEGORY_ID?from=2
 # 8. Delete just that transaction (prints 200; a second run prints 404)
 curl -i -X DELETE http://localhost:8080/api/transactions/REAL_TRANSACTION_ID
 
-# 9. Delete the budget (cascades to everything under it)
+# 9. Add a $2,000 paycheck every 2 weeks, with Oct 24 as a real payday
+curl -s -X POST http://localhost:8080/api/incomesources \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"REAL_USER_ID","budgetId":"REAL_BUDGET_ID","name":"Paycheck","amountCents":200000,"frequency":"BIWEEKLY","autoGenerate":true,"anchorDate":"2026-10-24"}'
+
+# 10. Income as of a given day (try the day before and the day of a payday)
+curl -s "http://localhost:8080/api/incomesources/budget/REAL_BUDGET_ID?asOf=2026-11-07"
+curl -s "http://localhost:8080/api/budgets/REAL_BUDGET_ID/income?asOf=2026-11-07"; echo
+
+# 11. Change the paycheck (PUT sends the whole schedule, not just the changed field)
+curl -s -X PUT http://localhost:8080/api/incomesources/REAL_INCOME_SOURCE_ID \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Paycheck","amountCents":250000,"frequency":"BIWEEKLY","anchorDate":"2026-10-31"}'
+
+# 12. Delete the budget (cascades to everything under it)
 curl -i -X DELETE http://localhost:8080/api/budgets/REAL_BUDGET_ID
 ```
 
+Responses that return one object end without a newline, so the next prompt can run into the output. Adding `; echo` after the curl command prints a newline.
+
 ---
 
-## 9. Derived values and category periods
+## 9. Derived values, category periods, and income
 
 Everything here is calculated on request in the service layer, using plain for loops. Nothing is stored.
 
@@ -741,8 +834,52 @@ Because it calls `getRemainingAmount`, this now uses each recurring category's c
 - **Budget level totals do not mean much yet.** `getTotal` adds weekly, monthly, yearly, and goal amounts together. `getRemainingBalance` adds current period remainders of different lengths plus goal remainders. Neither is used by the client, and neither should be built into UI until a budget level number is designed (for example a "monthly equivalent" or a budget level date view).
 - **History runs one query per period** (up to 60). Fine at household scale.
 - **History uses the category's current `amountCents` for every past period.** That is only correct because categories cannot be edited. If editing is ever added, amount changes will need an effective dated table so old periods keep their old limit.
-- Income is not part of any backend calculation.
 - `getRemainingBalance` runs one transaction query per category (fine at this size).
+
+### 9.4 Income paydays and month totals
+
+All in `IncomeSourceService`, using plain for loops. Nothing is stored; every number is calculated for the `asOf` date on request.
+
+**Paydays** (`getPayDates(source, from, to)`): every payday from `from` to `to`, both ends included, oldest first. Nothing is ever paid before the anchor, so `from` is moved up to the anchor when it is earlier.
+
+| Frequency | Paydays |
+| --- | --- |
+| WEEKLY | `anchor.plusDays(7n)` |
+| BIWEEKLY | `anchor.plusDays(14n)` |
+| MONTHLY | `anchor.plusMonths(n)`. An anchor on the 31st gives Feb 28 (or 29), then Mar 31 again. |
+| SEMIMONTHLY | The anchor's day and `secondPayDay` in every month, earlier day first. A day past the end of a short month uses the last day (the 31st becomes the 30th, 29th, or 28th). If both days land on the same date (the 30th and 31st in February), it counts once. |
+| IRREGULAR | none |
+
+Like category periods, paydays are **always measured from the anchor, never chained** from the previous payday, so month end dates never drift. Weekly and biweekly find the first index with rounded up division (`(days + step - 1) / step`) instead of looping from the anchor.
+
+**Month totals:**
+
+```
+received this month  = amountCents × (paydays from the 1st of asOf's month through asOf)
+expected this month  = amountCents × (paydays in all of asOf's month)
+next pay date        = first payday after asOf (null for irregular)
+
+irregular income:
+received this month  = sum of income entries from the 1st through asOf
+expected this month  = sum of income entries in the whole month (including ones dated later this month)
+```
+
+- **The payday itself counts** as received. On Nov 7 a Nov 7 paycheck is already in "received".
+- **Next pay date is the first payday after today**, because today's payday is already counted. If the anchor is in the future, it is the anchor.
+- **Expected uses the real number of paydays**, so a biweekly $2,000 paycheck expects $4,000 in most months and $6,000 in the two or three months a year that have three paydays. The old client showed a flat average ($4,333.33).
+
+Examples with a $2,000 biweekly paycheck anchored Oct 24, 2026 (paydays Nov 7, Nov 21, ...):
+
+| asOf | Received | Expected | Next |
+| --- | --- | --- | --- |
+| Nov 6 | 0 | 400000 | Nov 7 |
+| Nov 7 | 200000 | 400000 | Nov 21 |
+| Nov 21 | 400000 | 400000 | Dec 5 |
+| Jan 31, 2027 | 600000 | 600000 (Jan 2, 16, 30) | Feb 13 |
+
+**Why `asOf`:** "today" decides what counts as received. The server's today follows the container's `TZ`, but the user may be somewhere else, so the client sends its own date with `?asOf=`. When `asOf` is left off, the server uses its own today.
+
+**The same math exists in Dart** (`payDatesBetween` in `models.dart`, section 10.4) for local only mode and for when the server cannot be reached. The Java and Dart versions are tested against the same cases (`IncomeSourcePayDatesTest` and `test/pay_dates_test.dart`).
 
 The Flutter client does not call `/total`, `/remaining` (budget), or `/remaining` (category). It computes period spending itself from the transactions and period dates it already loaded (see 10.4), and calls `/history` for past periods.
 
@@ -777,8 +914,8 @@ The app is controlled by one compile time setting in `api.dart`:
 const apiBaseUrl = String.fromEnvironment('API_BASE', defaultValue: '');
 ```
 
-- **Local only mode** (`API_BASE` empty, the default): no network calls at all. Everything lives in memory and is saved to the device with `shared_preferences`. This is how the widget tests run. **There are no periods in this mode**: the server computes periods, so categories show all time totals, the Past periods section is hidden, and the history screen shows a message instead.
-- **Remote mode** (`--dart-define=API_BASE=http://...`): adds and deletes go to the API, and the app reloads its data from the API after each one. A copy of the last loaded data is still cached on the device.
+- **Local only mode** (`API_BASE` empty, the default): no network calls at all. Everything lives in memory and is saved to the device with `shared_preferences`. This is how the widget tests run. **There are no category periods in this mode**: the server computes them, so categories show all time totals, the Past periods section is hidden, and the history screen shows a message instead. **Income does work in this mode**: the client calculates paydays itself with `payDatesBetween` (the same rules as the server), so "so far" and "this month" are correct. Local only mode is planned to stay for a future simple, single user mobile app with no sharing.
+- **Remote mode** (`--dart-define=API_BASE=http://...`): adds and deletes go to the API, and the app reloads its data from the API after each one. A copy of the last loaded data is still cached on the device. The server's income numbers (`receivedThisMonth`, `expectedThisMonth`, `nextPayDate`) are **not** saved in that copy, because they would be stale the next day. If the server cannot be reached on launch, the cached income falls back to the client's own payday math, so the numbers stay correct.
 
 `Ledger` checks this with `bool get _remote => apiBaseUrl.isNotEmpty;`. Because it is a compile time constant, the mode is baked into each build; the Docker web build uses `http://localhost:8080`.
 
@@ -818,13 +955,15 @@ Key methods:
 | `addExpense` | Inserts locally | `POST /api/transactions` |
 | `removeExpense` | Removes locally | `DELETE /api/transactions/{id}` |
 | `addIncome` | Inserts locally | `POST /api/incomesources` |
-| `updatePaycheck` | Edits locally | **Local only** (no update endpoint exists) |
+| `updatePaycheck(source, name, amount, frequency, anchorDate?, secondPayDay?)` | Edits locally | `PUT /api/incomesources/{id}`. Clears `secondPayDay` unless the frequency is semimonthly. |
 | `logSideHustle` | Adds a payment locally | `POST /api/incomeentries` |
 | `removePayment` | Removes locally | `DELETE /api/incomeentries/{id}` |
 | `removeIncome` | Removes locally | `DELETE /api/incomesources/{id}` |
 | `loadHistory(categoryId, periods)` | Returns an empty list | `GET /api/categories/{id}/history`. Returns a `Future`; not stored in the ledger. |
 | `loadExpenses(categoryId, from, to)` | Returns an empty list | `GET /api/transactions/category/{id}?from=&to=`. Returns a `Future`; not stored in the ledger. |
-| `expectedIncomeDuring(month)` | Sum of each source's expected income for that month | same |
+| `expectedIncomeDuring(month)` | Sum of every source's `expectedDuring(month)` | same |
+| `receivedIncomeDuring(month)` | Sum of every source's `receivedDuring(month)` | same |
+| `receivedIncomeFor(budgetId, month)`, `expectedIncomeFor(budgetId, month)` | The same two sums for one budget | same |
 | `spentDuring(month)` | Sum of recurring category spending in that **calendar** month | same |
 
 `loadHistory` and `loadExpenses` are read only lookups that screens call directly and show with a `FutureBuilder`. They exist on `Ledger` only because `_api` is private; they do not change ledger state or call `notifyListeners`.
@@ -839,20 +978,22 @@ Private helpers:
 **`api.dart`**: the HTTP client. `BudgetApi` wraps every backend call.
 
 - Create methods: `createUser`, `login`, `createBudget`, `addMember`, `addCategory`, `addExpense`, `addIncome`, `logPayment`.
+- Update method: `updateIncome(source)` → `PUT /api/incomesources/{id}`.
+- `addIncome` and `updateIncome` share `_incomeSchedule(source)`, which builds `name`, `amountCents`, `frequency`, `anchorDate`, and `secondPayDay` (POST adds `userId`, `budgetId`, and `autoGenerate` with a `...` spread). A paycheck sends its frequency and anchor (`anchorDate ?? today` as a fallback; the dialog always sets it), and `secondPayDay` only for semimonthly. Manual income sends `IRREGULAR`, `0`, and nulls.
 - `addCategory` sends `frequency` as `frequency.name.toUpperCase()` (the Dart enum names match the server's) and `anchorDate` as `yyyy-MM-dd`. **For goals it sends `null` for both.**
 - Delete methods: `deleteBudget`, `deleteCategory`, `deleteExpense` (transaction), `deleteMember` (membership ID), `deleteIncome` (income source), `deletePayment` (income entry).
 - Load methods:
   - `loadBudgets(userId)` builds the full tree: `GET /api/budgets?userId=`, then for each budget `GET /api/budgetmembers/budget/{id}` and `GET /api/categories/budget/{id}`, then for each category `loadExpenses(id)` (every transaction, unfiltered). Each category gets its `anchorDate`, `periodStart`, and `periodEnd` from the response.
-  - `loadIncome(budgets)`: for each budget `GET /api/incomesources/budget/{id}`, then for each source `GET /api/incomeentries/source/{id}`.
+  - `loadIncome(budgets)`: for each budget `GET /api/incomesources/budget/{id}?asOf=<device's date>`, then for each source `GET /api/incomeentries/source/{id}`. Reads `anchorDate`, `secondPayDay`, `receivedThisMonthCents`, `expectedThisMonthCents`, and `nextPayDate` into the model.
   - `loadHistory(categoryId, periods)` → `List<PeriodSummary>`.
   - `loadExpenses(categoryId, from?, to?)` → `List<Expense>`. Adds `from` and/or `to` to the query string only when given.
 - That is **one request per budget, category, and income source**, run one after another. Fine for a household, slow at scale.
 - `_userIdFor(name, email)` uses the public `by-email` endpoint. A 404 becomes "No account found for X. They need to sign up first."
 - `_expense(row)` turns one transaction JSON row into an `Expense` (label from `merchant`, falling back to `description`). Used by `loadExpenses`.
-- `_object(method, path, body)` handles single object requests. It supports **`GET`, `POST`, and `DELETE`**. Anything else (for example `PUT`) throws `Unsupported $method`. An empty response body (like a delete's) returns an empty map.
+- `_object(method, path, body)` handles single object requests. It supports **`GET`, `POST`, `PUT`, and `DELETE`**. Anything else throws `Unsupported $method`. An empty response body (like a delete's) returns an empty map.
 - `_list(path)` handles list responses.
 - `_check` turns any status 400 or higher into `ApiException('API $method $path failed ($status)')`.
-- Conversion helpers: `_cents(dollars)` rounds `dollars * 100`; `_dollars(cents)` divides by 100; `_date(DateTime)` → `YYYY-MM-DD`; `_apiFrequency` and `_payFrequency` map **income** frequencies; `_categoryFrequency` maps a server category frequency string to `CategoryFrequency` (unknown or null falls back to monthly); `_role` maps role strings (unknown falls back to viewer).
+- Conversion helpers: `_cents(dollars)` rounds `dollars * 100`; `_dollars(cents)` divides by 100; `_date(DateTime)` → `YYYY-MM-DD`; `_apiFrequency` and `_payFrequency` map **income** frequencies (`WEEKLY`, `BIWEEKLY`, `SEMIMONTHLY`, `MONTHLY`; an unknown value falls back to monthly); `_categoryFrequency` maps a server category frequency string to `CategoryFrequency` (unknown or null falls back to monthly); `_role` maps role strings (unknown falls back to viewer).
 - `_account(body, password)` builds an `Account` from the server response **and attaches the password the user typed**, which then gets saved on the device.
 
 **`models.dart`**: plain Dart data classes, each (except `PeriodSummary`) with `toJson()` and `fromJson()` for device storage.
@@ -865,7 +1006,7 @@ Private helpers:
 | `BudgetCategory` | `id, name, kind, frequency, anchorDate?, periodStart?, periodEnd?, target, expenses` | see below |
 | `Expense` | `id, label, amount, date` | |
 | `PeriodSummary` | `start, end, limit, spent` | `remaining`, `isOver`, `fraction`. One row from `/history`. Not stored on the device. |
-| `IncomeSource` | `id, budgetId, name, kind, frequency?, paycheckAmount, payments` | `totalLogged`, `expectedDuring(month)` |
+| `IncomeSource` | `id, budgetId, name, kind, frequency?, paycheckAmount, anchorDate?, secondPayDay?, payments`, plus read only server values `receivedThisMonth?, expectedThisMonth?, nextPayDate?` | `totalLogged`, `receivedDuring(month)`, `expectedDuring(month)`, `upcomingPayDate` |
 | `IncomePayment` | `id, amount, date` | |
 
 `BudgetCategory` computed values:
@@ -876,11 +1017,21 @@ Private helpers:
 - `remaining`, `isOver` (recurring only), `fraction` (for the progress bar, capped at 1.4).
 - `periodLabel`: "Nov 1 to Nov 30", a single date for daily categories, years added when the period crosses a year; null without a period.
 
-Enums: `BudgetRole { owner, editor, viewer }`, `CategoryKind { recurring, goal }`, `CategoryFrequency { daily, weekly, biweekly, monthly, quarterly, semiannually, yearly }` (each with a `label`, for example "Every 2 weeks"), `IncomeKind { paycheck, sideHustle }` (`isAutomatic` is true for paycheck), `PayFrequency { weekly, biweekly, monthly }` (**income only**).
+Enums: `BudgetRole { owner, editor, viewer }`, `CategoryKind { recurring, goal }`, `CategoryFrequency { daily, weekly, biweekly, monthly, quarterly, semiannually, yearly }` (each with a `label`, for example "Every 2 weeks"), `IncomeKind { paycheck, sideHustle }` (`isAutomatic` is true for paycheck), `PayFrequency { weekly, biweekly, semimonthly, monthly }` (**income only**; semimonthly's label is "Twice a month").
 
-`monthlyEquivalent(frequency, amount)`: weekly × 52 / 12, biweekly × 26 / 12, monthly × 1. Used to show what a paycheck contributes in a typical month.
+`payDatesBetween(frequency, anchorDate, secondPayDay, from, to)`: the Dart copy of the server's `getPayDates` (section 9.4), with helpers `_daysBetween`, `_addMonths`, `_addEveryNDays`, `_addMonthly`, `_addSemimonthly`. Two Dart specific details:
 
-`IncomeSource.expectedDuring(month)`: for a paycheck, its monthly equivalent; for a side hustle, the sum of payments logged that month.
+- Dart has no `plusMonths`. `DateTime(2027, 1 + 1, 31)` rolls over to March 3, so `_addMonths` clamps the day to the end of the month like Java does.
+- Dates are built from year, month, and day (`DateTime(y, m, d + 14)`) instead of adding a `Duration`, which would land on the wrong day across a daylight saving change. `_daysBetween` uses UTC dates for the same reason.
+
+`IncomeSource` month values:
+
+- `receivedDuring(month)`: the server's `receivedThisMonth` when there is one **and** `month` is the current month (the server value only describes the current month). Otherwise `_localTotal` from the 1st through today (a past month counts in full, a future month is 0).
+- `expectedDuring(month)`: the server's `expectedThisMonth` under the same condition, otherwise `_localTotal` for the whole month.
+- `upcomingPayDate`: the server's `nextPayDate`, otherwise calculated (the anchor if it is in the future, else the first payday after today within two months).
+- `_localTotal(from, to)`: a paycheck is the number of `payDatesBetween` × `paycheckAmount` (0 with no anchor); a side hustle is the sum of payments dated in the range.
+
+The old `monthlyEquivalent` average (biweekly × 26 / 12) was **removed**; nothing uses an average anymore.
 
 `Budget.fromJson` contains a small migration: an old saved format with loose `expenses` and no categories is converted into a single "Spending" category. Category frequencies saved before `CategoryFrequency` existed (`weekly`, `biweekly`, `monthly`) have the same names, so old device data still loads.
 
@@ -895,15 +1046,16 @@ Money in the client is a `double` of dollars. The API layer converts to and from
 **`screens/overview_screen.dart`**: the "This month" tab. (Still flat rows; no glass cards.)
 
 - Header with the account name, month, and a **Sign out** button.
-- Summary: **Income** (expected this month), **Spent** (recurring categories this **calendar** month), **Left**.
+- Summary: **Income so far** (`receivedIncomeDuring`, paydays from the 1st through today) with "$X expected this month" under it, **Spent** (recurring categories this **calendar** month, any date in the month), **Left** (income so far minus spent). Every budget the user belongs to is included, including shared and view only ones (see 14.2).
 - **Over the limit**: recurring categories over their limit **in their current period** (through `isOver`).
 - **Spending**: this calendar month's expenses across all budgets, newest first.
-- **Income**: every income source with its monthly figure.
+- **Income**: every income source, "Every 2 weeks · $2,000.00 so far of $4,000.00" (manual: "$X logged this month").
+- There is no "last N transactions" or "last N days" rule anywhere on this tab. Everything except Over the limit is the current calendar month, and lists have no length limit.
 
 **`screens/budgets_screen.dart`**: three screens.
 
 - `BudgetsScreen` (tab): each budget is a **`GlassCard`** tinted rust if over its limit, otherwise moss. Inside: the name, member chips (translucent white background, pill shape), and `spent / limit` (current periods summed). The **+** opens the create budget dialog. Tapping a card opens its detail.
-- `BudgetDetailScreen`: totals ("Spent against limits" is the sum of current periods, plus "$X this month" for the calendar month); **Categories** as glass cards tinted gold (goal), rust (over this period), or moss. Each recurring card shows **this period's** spending against the limit and a subtitle like "Weekly · Oct 30 to Nov 5". Tap to open, **×** to remove. **People** as neutral glass cards (**×** to remove anyone but the owner); **Income** for this budget (flat `IncomeRow`s). The trash icon in the app bar asks for confirmation, then calls `ledger.deleteBudget`. It looks up its budget **by ID** on every rebuild and pops itself only when the budget no longer exists.
+- `BudgetDetailScreen`: totals ("Spent against limits" is the sum of current periods, plus "$X this month" for the calendar month); **Categories** as glass cards tinted gold (goal), rust (over this period), or moss. Each recurring card shows **this period's** spending against the limit and a subtitle like "Weekly · Oct 30 to Nov 5". Tap to open, **×** to remove. **People** as neutral glass cards (**×** to remove anyone but the owner); **Income** for this budget (flat `IncomeRow`s). The header also shows **Income this month**: "$X so far" and "$Y expected this month" (`receivedIncomeFor` and `expectedIncomeFor`). The trash icon in the app bar asks for confirmation, then calls `ledger.deleteBudget`. It looks up its budget **by ID** on every rebuild and pops itself only when the budget no longer exists.
 - `CategoryScreen`:
   - Header: this period's spending against the limit, "$X left · Oct 30 to Nov 5", and a fill bar. Goals show all time progress.
   - **Expenses this period** (or **Contributions** for goals): add with **+**, remove with **×**. Rows stay flat on purpose.
@@ -919,8 +1071,8 @@ Money in the client is a `double` of dollars. The API layer converts to and from
 **`screens/income_screen.dart`**:
 
 - `IncomeScreen` (tab): every income source, separated by `Hairline`s (not glass cards yet). **+** opens the income dialog (requires at least one budget).
-- `IncomeRow`: one source. Tapping a paycheck opens the edit dialog (`updatePaycheck`). Tapping a side hustle opens `SideHustleScreen`. Side hustles get a **Log** button. Every row has **×** to remove. Also reused on the budget detail screen.
-- `SideHustleScreen`: total brought in, this month's amount, and the list of logged payments (each removable). Looks up its source by ID and pops only if it is gone.
+- `IncomeRow`: one source, on two lines: "Budget · Every 2 weeks · next Nov 7" (`upcomingPayDate`; hidden when there is none) and "$0.00 so far · $4,000.00 this month" (manual: "$X logged this month"). The number on the right is still the amount of one paycheck (or the all time total for manual income). Tapping a paycheck opens the edit dialog (`updatePaycheck`, now saved to the server). Tapping a side hustle opens `SideHustleScreen`. Side hustles get a **Log** button. Every row has **×** to remove. Also reused on the budget detail screen.
+- `SideHustleScreen`: total brought in, this month's amount so far (`receivedDuring`, so an entry dated later this month is not counted yet), and the list of logged payments (each removable). Looks up its source by ID and pops only if it is gone.
 
 **`dialogs.dart`**: every popup form. Each `show...Dialog` function returns the new object, or `null` if cancelled.
 
@@ -930,7 +1082,7 @@ Money in the client is a `double` of dollars. The API layer converts to and from
 | `showAddMemberDialog` | name, email, role (editor or viewer) | Email is required in remote mode |
 | `showCategoryDialog` | name, type, reset frequency and start option (recurring only), amount | Turns the start option into one `anchorDate` (below). Amount must be greater than 0. |
 | `showExpenseDialog` | label, amount, date | Date picker allows 2000 to 2100 |
-| `showIncomeDialog` | automatic or manual, name, budget, amount and frequency (automatic only) | Also used to edit a paycheck |
+| `showIncomeDialog` | automatic or manual, name, budget, and for automatic: amount, frequency, **payday**, and **second payday** (twice a month only) | Also used to edit a paycheck (it edits the existing object in place) |
 | `showLogIncomeDialog` | amount, date | For side hustles |
 
 The category dialog's start options, and how each becomes the anchor:
@@ -948,6 +1100,12 @@ The category dialog's start options, and how each becomes the anchor:
 - Date pickers in this dialog only allow **today or earlier**, so the current period always exists.
 - Dates are built with the `DateTime(year, month, day - n)` constructor, never by subtracting a `Duration`, because subtracting 24 hour chunks across a daylight saving change can land on the wrong day. `DateTime(year, month + 1, 0)` gives the last day of a month.
 - A live line under the options shows the result: "Current period starts Nov 1, 2026."
+
+The income dialog's schedule fields (automatic income only):
+
+- **Payday** ("First payday" for twice a month): a date picker labeled "Pick your most recent payday, or your first one if it has not happened yet." Defaults to today for a new paycheck, or the saved anchor when editing. Allows dates from 2000 up to **one year ahead**, for a job that has not paid yet.
+- **Second payday each month**: a 1 to 31 dropdown, shown only for "Twice a month". 31 is labeled "31 (last day)". Defaults to the 15th, or the 31st when the first payday is on the 15th. A note explains that days past the end of a short month use the last day.
+- Saving twice a month with the same day twice shows "Pick a second payday that is different from the first." instead of letting the server return 400.
 
 **`format.dart`**: `money(double)` → `$1,234.56`; `dateShort` → `Oct 27`; `monthYear` → `October 2026`; `sameMonth(a, b)`; `parseMoney(text)` strips `$` and commas and parses; `periodRange(start, end)` → "Oct 30 to Nov 5", adding years when the range crosses a year or is not in the current year, and a single date when start and end are the same day.
 
@@ -993,7 +1151,11 @@ When editing Dart through the terminal, writing a whole file with `cat > file <<
 1. **Expenses count toward a category limit**: create an account, create "Household", add a $100 "Groceries" category, log a $42.50 expense, add "Jordan" as a member, rebuild the app, and check everything was restored from device storage.
 2. **A side hustle total updates when money is logged**: add a manual income source, log $80, check the total.
 
-Both still pass after the period changes, because local only mode has no periods and falls back to all time totals. Run with `flutter test` from `src/frontend_app`. The Docker build does **not** run them. There are no tests for remote mode, deletes, the category dialog's anchor logic, or periods.
+Both still pass after the period changes, because local only mode has no periods and falls back to all time totals.
+
+`test/pay_dates_test.dart` (7 tests) checks `payDatesBetween` against the same cases as the Java `IncomeSourcePayDatesTest`: biweekly November (2 paydays) and January 2027 (3), a monthly anchor on Jan 31 (Feb 28, then Mar 31), semimonthly 15th and 31st in a 30 day month, semimonthly skipping dates before the anchor, a future anchor, and `expectedDuring` with no server values (4000 and 6000, not 4333.33).
+
+Run them with Docker (section 4, "Running the tests"), or `flutter test` from `src/frontend_app` with Flutter installed. The Docker build does **not** run them. There are no tests for remote mode, deletes, the category dialog's anchor logic, or category periods.
 
 ---
 
@@ -1011,8 +1173,10 @@ Both still pass after the period changes, because local only mode has no periods
 | `BudgetCategory.current` | `/api/categories/{id}/remaining` | client sums the period's transactions itself; does not call the endpoint |
 | `PeriodSummary` | `CategoryPeriodResponse` | `limit`, `spent` dollars ↔ `limitCents`, `spentCents`; `remainingCents` is ignored and recomputed |
 | `Expense` | `Transaction` | `label` is sent as both `merchant` and `description`; read back from `merchant`, falling back to `description` |
-| `IncomeSource` (paycheck) | `IncomeSource` with `autoGenerate: true` | `paycheckAmount` ↔ `amountCents`; `nextPayDate` is always set to today |
-| `IncomeSource` (side hustle) | `IncomeSource` with `autoGenerate: false`, `frequency: IRREGULAR`, `amountCents: 0` | |
+| `IncomeSource` (paycheck) | `IncomeSource` with `autoGenerate: true` | `paycheckAmount` ↔ `amountCents`; `PayFrequency` lowercase ↔ uppercase (`semimonthly` ↔ `SEMIMONTHLY`); `anchorDate` `DateTime` ↔ `"yyyy-MM-dd"`; `secondPayDay` sent only for semimonthly |
+| `IncomeSource.receivedThisMonth`, `expectedThisMonth`, `nextPayDate` | `IncomeSourceResponse.receivedThisMonthCents`, `expectedThisMonthCents`, `nextPayDate` | read only, calculated by the server for the `asOf` date the client sends (the device's today); cents ↔ dollars |
+| `IncomeSource` (side hustle) | `IncomeSource` with `autoGenerate: false`, `frequency: IRREGULAR`, `amountCents: 0`, `anchorDate: null` | |
+| `ledger.receivedIncomeFor(budgetId)`, `expectedIncomeFor(budgetId)` | `/api/budgets/{id}/income` | client adds up its own sources; does not call the endpoint |
 | `IncomePayment` | `IncomeEntry` | `date` ↔ `receivedDate` |
 | `Budget.totalLimit`, `totalSpent` | `/api/budgets/{id}/total`, `/remaining` | client calculates its own; does not call the endpoints |
 
@@ -1087,13 +1251,15 @@ Planned but not done:
 - **Money as `long` cents.** UUID primary keys. Enums stored as strings.
 - **Derived values are calculated, never stored.** This includes every category period.
 - **Missing rows are 404s** via `ResponseStatusException`, not plain `RuntimeException`. Bad input the annotations cannot express is a 400 thrown by the service.
-- **Never edit a Flyway migration that has already run.** Add the next version. Next is **V9**. (The one pre-release exception is documented in 6.1.)
+- **Never edit a Flyway migration that has already run.** Add the next version. Next is still **V9**. (The two pre-release exceptions, V6 and V4, are documented in 6.1.)
+- **Schedules are anchored.** Anything that repeats (category periods, paydays) stores one real date and calculates every occurrence from it, never by chaining from the last one. The server and the client use the same rules.
+- **"Today" comes from the client** when it matters (`asOf`), so the user's time zone wins over the server's.
 - **Categories are not editable** by design (see 6.4).
 - **Secrets and settings** come from env vars (`DB_USER`, `DB_PASSWORD`, `TZ`). `.env` is gitignored; `.env.example` is committed.
 - **Minimal dependencies and tooling.** End users should only need `docker compose up`.
 - **Keep UI code simple**: no over-engineering (for example, `GlassCard` skips blur).
 - **Open source, privacy first, self hosted.**
-- Josh writes the backend code himself and prefers review that points out bugs over rewrites. For Dart, where he is less familiar, whole file replacements are preferred over piecemeal edits.
+- Josh writes the backend code himself and prefers review that points out bugs over rewrites. For Dart, where he is less familiar, whole file replacements are preferred over piecemeal edits. Big features are done in phases (database, entity and records, service math with tests, endpoints, client model and API, UI, wrap up), each tested before the next, on a feature branch.
 
 ---
 
@@ -1108,35 +1274,39 @@ Planned but not done:
 - **No global error handler** (`@ControllerAdvice`), so failures that are not explicit `ResponseStatusException`s surface as a generic 500. Error messages from `ResponseStatusException` are not included in the response body.
 - **Creating a category for a budget that does not exist returns 500** (foreign key). Same for every create endpoint with a bad parent ID. Easiest to fix everywhere at once, probably alongside role checks, which will look up the budget anyway.
 - **No length validation** on names and titles, so a value over 100 characters fails at the database with 500.
-- **No update (`PUT`/`PATCH`) endpoints at all.** Categories are intentionally not editable; the rest could use updates (budgets, transactions, members, income).
+- **Only one update endpoint** (`PUT /api/incomesources/{id}`). Categories are intentionally not editable; budgets, transactions, members, and income entries could use updates.
 - **Budget total and remaining are not meaningful** (they mix frequencies and goals; see 9.3).
 - **History runs one query per period**, and the category list computes each category's period separately. Fine at this size.
 - **No membership checks** when logging or deleting transactions or income.
 - **No check on future transaction dates.**
-- **Auto generated income is not implemented**: `autoGenerate` and `nextPayDate` are stored, nothing runs on a schedule.
-- **No automated tests.** JUnit and Testcontainers are ready in the pom. `CategoryService.getPeriodContaining` is pure date math and the best first candidate (January 31 monthly anchor, biweekly parity, week boundaries, a date before the anchor).
-- **Style cleanup:** Streams in `IncomeSourceController` and `IncomeEntryController`; `BudgetMemberView` should become its own response DTO; `IncomeSourceController` and `BudgetController` use wildcard `org.springframework.web.bind.annotation.*` imports while the others list imports one by one.
+- **Every paycheck is assumed to be the same amount.** Scheduled income is calculated from the schedule, so overtime, a bonus, or a smaller first check cannot be recorded for one payday. If that is needed later, the fix is a scheduler that writes an income entry on each payday (what `autoGenerate` was originally for) so single paychecks can be edited.
+- **`autoGenerate` is now just a "scheduled paycheck" flag**; nothing runs on a schedule. It is not editable through PUT, so a paycheck cannot be turned into manual income (or back) without deleting and re-adding it.
+- **POST and PUT for income sources answer with the server's today**, not the client's. The client reloads the list with `asOf` right after, so this does not show, but other clients should not rely on those three values.
+- **Few automated tests.** The only backend test is `IncomeSourcePayDatesTest` (8 tests, pay date math only). JUnit and Testcontainers are ready in the pom. `CategoryService.getPeriodContaining` is pure date math and the next best candidate (January 31 monthly anchor, biweekly parity, week boundaries, a date before the anchor). Testing it the same way needs no database: create the service with `null` repositories.
+- **Style cleanup:** a Stream in `IncomeEntryController` (the one in `IncomeSourceController` was replaced with a for loop); `BudgetMemberView` should become its own response DTO; `IncomeSourceController` and `BudgetController` use wildcard `org.springframework.web.bind.annotation.*` imports while the others list imports one by one.
 
 ### 14.2 Frontend
 
 - **Expenses from past periods cannot be deleted in the UI.** The category page only lists the current period, and `PeriodDetailScreen` is read only. A wrongly dated expense has to be removed with `psql` or curl. Adding a **×** to period detail rows is a small change.
 - **A future dated expense** (the expense dialog allows dates up to 2100) does not show in the current period until its period arrives, which can look like it disappeared.
-- **Editing a paycheck does not reach the server** (`updatePaycheck` is local only) and is reverted on the next refresh. Needs a backend update endpoint first.
 - **API errors are invisible outside the account screen.** `ledger.error` is only displayed on `AccountScreen`, so a failed add or delete on any other screen (for example a 400 from the category rules, or a 409 from removing the owner) fails silently.
 - **No way to sign in to an existing server account on a new device.** `AccountScreen` only offers Sign in when an account is already saved on the device. On a fresh browser it only shows Create account, and creating with an existing email fails on the server.
 - **The password is stored in plain text on the device**, and signing out does not remove it.
 - **No re-authentication on launch**: if `signedIn` was saved as true, the app loads that user's data from the API using the cached ID.
 - **Create budget dialog's extra members are dropped in remote mode**; only the title is sent.
-- **Income `nextPayDate` is always today**, and income only knows weekly, biweekly, and monthly.
+- **The income dialog edits the paycheck object before the server answers.** If the PUT fails (for example a 400), the row shows the new values until the next refresh, and the error is invisible outside the account screen.
+- **The Overview includes every budget the user belongs to**, including view only ones. With the test data, Josh's Overview counts Abigail's paycheck and hobby spending from Abigail Personal, where he is only a viewer. Needs a decision: only owner and editor budgets, or a budget filter.
+- **Overview Spent and Income use different cutoffs.** Income so far stops at today; Spent counts every expense dated in the month, including future dated ones, so a future expense lowers "Left" early.
+- **Overview Spent is by calendar month** even for weekly or yearly categories (those are only judged on their own periods in "Over the limit").
 - **Many sequential requests** on every load and after every change (one per budget, category, and income source). Every category's **entire** transaction history is loaded, even though cards only need the current period. The category page also reruns its Past periods request on every ledger change.
 - **The budget level totals mix period lengths**: "Spent against limits" adds a weekly category's week to a monthly category's month. Rough, not wrong, but not a meaningful single number.
-- **Periods do not exist in local only mode** (the server computes them).
+- **Category periods do not exist in local only mode** (the server computes them). Income does work there (the client has its own payday math).
 - **`BudgetCategory.periodLabel` duplicates `periodRange`** in `format.dart`. Optional cleanup: `String? get periodLabel => hasPeriod ? periodRange(periodStart!, periodEnd!) : null;`.
 - **After a database wipe**, clear the browser's site data or the app keeps a stale account.
 - **Web branding is half done**: the favicon and PWA icons are the Spencer+ logo, but the tab title, manifest name, description, and theme color are still Flutter template values (see 10.2).
-- **Glass card styling is partial**: budgets, categories, people, and period rows use `GlassCard`; the Income tab, the budget detail's income rows, and the Overview are still flat rows with hairlines.
+- **Glass card styling is partial**: budgets, categories, people, and period rows use `GlassCard`; the Income tab, the budget detail's income rows, and the Overview are still flat rows with hairlines. The income rows now have two subtitle lines.
 - **Android:** package ID is still `com.example.frontend_app`; no `INTERNET` permission in the main manifest; cleartext HTTP blocked on release builds; default launcher icon.
-- **No remote mode tests.**
+- **No remote mode tests.** The only Dart tests are the two widget tests and `pay_dates_test.dart`.
 
 ### 14.3 Deployment
 
@@ -1172,18 +1342,27 @@ Planned but not done:
 - Flutter client merged (PR #1), plus the review fixes: cascade migration, transactional budget creation, shared budget listing, removal of auto-created "changeme" accounts
 - Glass card UI (`GlassCard`, status tinted) on the budgets list, categories, people, and period rows
 - Spencer+ favicon and web icons
+- **Income paydays** (November 4, 2026), on the `income-pay-dates` branch:
+  - `income_sources` has `anchor_date` and `second_pay_day` with three CHECK constraints (V4 edited, pre-release); `DAILY` removed from income
+  - Pay date math for weekly, biweekly, twice a month, and monthly, with "received this month" (only paydays that already happened), "expected this month" (real number of paydays), and next payday
+  - `asOf` on the income list, `GET /api/budgets/{id}/income`, and `PUT /api/incomesources/{id}`
+  - First JUnit test class (`IncomeSourcePayDatesTest`) and a Dart test (`pay_dates_test.dart`) for the same cases
+  - Income dialog with a payday picker and a second payday for twice a month; rows show "so far · this month · next"; Overview and budget detail use income received so far
+  - The same pay date math in Dart, for local only mode and when the server is unreachable
+  - `scripts/seed_test_data.sql` for manual testing
 
 **Next**
 
 1. Small history follow ups: allow deleting expenses from `PeriodDetailScreen`; add a `TZ=` line to `.env.example`; optionally shorten `periodLabel`.
-2. Unit tests for `getPeriodContaining` (cheap and high value).
+2. Merge `income-pay-dates` into `main` (fast forward) after the full test. Then unit tests for `getPeriodContaining` (cheap and high value).
 3. Finish the glass card pass on the Income tab (and decide on the Overview).
-4. Update endpoints for budgets, transactions, members, income sources, and income entries; then wire `updatePaycheck` through the client. (Categories stay non-editable.)
+4. Update endpoints for budgets, transactions, members, and income entries (income sources already have PUT). (Categories stay non-editable.)
+4b. Decide what the Overview counts: shared view only budgets, and whether future dated expenses count before their date.
 5. Error handling: `@ControllerAdvice`, 404 and 409 instead of 500; show `ledger.error` on every screen, not only sign in.
 6. Real authentication with JWT, and role checks (owner manages members and deletes the budget, editor adds, changes, and deletes items, viewer reads only). Then remove or lock down `by-email`.
 7. Sign in to an existing server account from a fresh device.
 8. Budget level history: a date stepper on the budget screen ("< Aug 2026 >") where each card shows the period that contained that date. Needs an optional `asOf` date on `GET /api/categories/budget/{id}`; `getPeriodContaining` already accepts any date. Also decide what a meaningful budget level total is.
-9. Auto generated income scheduler.
+9. Only if per paycheck edits are needed (bonus, overtime): a scheduler that writes an income entry on each payday so single paychecks can be changed.
 10. Tests: JUnit with Testcontainers for services and controllers (including deletes, cascades, and history); Flutter tests for remote mode and the category dialog.
 11. Release: fix `API_BASE`, GitHub Actions image publishing, release compose file, remove port 5432, deploy behind Nginx Proxy Manager and Cloudflare.
 12. Android build (package ID, permissions, HTTPS, launcher icon). iOS needs a Mac.
@@ -1230,6 +1409,40 @@ CAT=$(docker exec budget-db psql -U budgetapp -d budgetapp -tAc "SELECT id FROM 
 curl -s "http://localhost:8080/api/categories/$CAT/history?periods=6"
 curl -s "http://localhost:8080/api/transactions/category/$CAT?from=2026-08-01&to=2026-08-31"
 
+# Load the test data (3 budgets, 11 categories, 31 transactions, 11 income sources, 7 entries).
+# Needs Josh's account and Abigail's (abigailspencer@gmail.com) to exist first; create hers through the API so the password works:
+curl -s -X POST http://localhost:8080/api/users -H "Content-Type: application/json" \
+  -d '{"firstName":"Abigail","lastName":"Spencer","email":"abigailspencer@gmail.com","password":"password123"}'; echo
+docker exec -i budget-db psql -U budgetapp -d budgetapp < scripts/seed_test_data.sql
+# Safe to rerun: it deletes its own budgets (fixed IDs 11111111-0000-0000-0000-00000000000X) first.
+# Paydays use fixed dates (expected values for Nov 4, 2026 are in the comments); transactions and entries are relative to today.
+
+# Every table at once
+for t in users budgets budget_members categories transactions income_sources income_entries; do
+  echo "===== $t ====="; docker exec budget-db psql -U budgetapp -d budgetapp -c "SELECT * FROM $t;"
+done
+
+# Income schedule only
+docker exec budget-db psql -U budgetapp -d budgetapp -c "SELECT name, amount_cents, frequency, anchor_date, second_pay_day, auto_generate FROM income_sources;"
+
+# Income numbers for any day (readable output)
+curl -s "http://localhost:8080/api/incomesources/budget/$BUDGET?asOf=2026-11-07" | python3 -m json.tool | grep -E '"name"|ThisMonthCents|nextPayDate'
+curl -s "http://localhost:8080/api/budgets/$BUDGET/income?asOf=2026-11-30"; echo
+
+# Status code only (for checking 400 and 404)
+curl -s -o /dev/null -w "%{http_code}\n" -X PUT http://localhost:8080/api/incomesources/$SOURCE -H "Content-Type: application/json" -d '{...}'
+
+# Tests
+mvn test -Dtest=IncomeSourcePayDatesTest      # needs Maven in the terminal (sudo dnf install maven); or Run As → JUnit Test in Eclipse
+docker run --rm -v "$PWD/src/frontend_app":/src:ro,z ghcr.io/cirruslabs/flutter:stable \
+  sh -c "cp -r /src /app && cd /app && flutter pub get && flutter test test/pay_dates_test.dart"
+
+# Git: feature branches
+git branch --show-current             # which branch am I on
+git switch -c name                    # new branch from here (keeps uncommitted changes)
+git push -u origin name               # first push of a new branch
+git log --oneline -5                  # recent commits
+
 # Run a block of SQL (for seeding test data) from the terminal
 docker exec -i budget-db psql -U budgetapp -d budgetapp <<'SQL'
 -- statements here
@@ -1261,6 +1474,23 @@ done
 ---
 
 ## 17. Change log
+
+**November 4, 2026: income paydays (branch `income-pay-dates`)**
+
+The income tab showed a monthly average ($2,000 every 2 weeks showed as $4,333.33 a month) instead of what had actually been paid. Income now shows money received so far this month, based on real paydays.
+
+- Database: **edited V4** (pre-release only; every database was wiped): `next_pay_date` replaced by `anchor_date`; added `second_pay_day INTEGER`; added `chk_income_sources_frequency`, `chk_income_sources_anchor_date`, and `chk_income_sources_second_pay_day`. `DAILY` is no longer an income frequency. Next migration is still V9.
+- Backend, incomesource: `IncomeSource.anchorDate` and `secondPayDay` (the stored `nextPayDate` field removed; next payday is now calculated); `DAILY` removed from the enum. `CreateIncomeSourceRequest` takes `anchorDate` and `secondPayDay`. New `UpdateIncomeSourceRequest`. `IncomeSourceResponse` gained `anchorDate`, `secondPayDay`, `receivedThisMonthCents`, `expectedThisMonthCents`, `nextPayDate`, and `fromEntity` takes the three calculated values. `IncomeSourceService` gained `IncomeEntryService` as a dependency, `validateSchedule` (400s), `updateIncomeSource`, `toResponse`, `getPayDates`, `getReceivedCents`, `getExpectedCents`, `getNextPayDate`, and the private `addEveryNDays`, `addMonthly`, `addSemimonthly`. The controller's list takes `?asOf=`, uses a for loop instead of a Stream, and has a new `PUT /{id}`.
+- Backend, incomeentry: `findByIncomeSourceIdAndReceivedDateBetween` and `IncomeEntryService.getTotalCentsBetween`.
+- Backend, budget: `BudgetService` depends on `IncomeSourceService`; new `getIncome(budgetId, asOf)`, `BudgetIncomeResponse`, and `GET /api/budgets/{id}/income?asOf=`.
+- Backend, tests: first test class, `src/test/java/.../incomesource/IncomeSourcePayDatesTest.java` (8 tests). The math was also checked against a brute force list over 20,000 random date ranges with no mismatches.
+- Client, models: `PayFrequency.semimonthly` ("Twice a month"); `IncomeSource` gained `anchorDate`, `secondPayDay`, `receivedThisMonth`, `expectedThisMonth`, `nextPayDate`, `receivedDuring`, `upcomingPayDate`, `_localTotal`; `expectedDuring` uses the server value or real paydays. New `payDatesBetween` and its helpers. `monthlyEquivalent` removed. Every `switch` on `PayFrequency` handles `semimonthly` (Dart 3 rejects a switch that misses an enum value).
+- Client, api: `addIncome` and new `updateIncome` share `_incomeSchedule`; `_object` supports `PUT`; `loadIncome` sends `?asOf=` with the device's date and reads the new fields; `_apiFrequency` and `_payFrequency` handle `SEMIMONTHLY` (it used to come back as monthly).
+- Client, ledger: `updatePaycheck` takes optional `anchorDate` and `secondPayDay` and calls the API in remote mode; new `receivedIncomeDuring`, `receivedIncomeFor`, `expectedIncomeFor`.
+- Client, dialogs: the income dialog has a payday picker and a second payday dropdown for twice a month, a same day check, and passes both values when adding or editing.
+- Client, screens: `IncomeRow` shows "Budget · Every 2 weeks · next Nov 7" and "$0.00 so far · $4,000.00 this month"; the edit passes the new fields. The side hustle screen counts only entries up to today. The Overview shows "Income so far" with "expected this month" under it, and Left uses income so far. The budget detail header shows the budget's income so far and expected.
+- Client, tests: `test/pay_dates_test.dart` (7 tests), run with the Flutter Docker image.
+- Scripts: `scripts/seed_test_data.sql` with test data for every income and category case, using Josh's account and a second test account (Abigail).
 
 **November 3, 2026: category periods and history**
 

@@ -102,7 +102,7 @@ Everything lives in `.env` next to `docker-compose.yml`:
 | `DB_PASSWORD` | Postgres password. **Change this.**            | a long random string |
 | `TZ`          | Time zone for the app container                | `America/New_York` |
 
-Generate a password with `openssl rand -base64 24`. Never commit `.env`.
+Generate a password with `openssl rand -base64 24` is recommended. 
 
 ## Use it
 
