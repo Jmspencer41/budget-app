@@ -13,7 +13,8 @@ class OverviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final income = ledger.expectedIncomeDuring(now);
+    final income = ledger.receivedIncomeDuring(now); // only paydays that already happened
+    final expectedIncome = ledger.expectedIncomeDuring(now);
     final spent = ledger.spentDuring(now);
     final left = income - spent;
     final spending = <_SpendLine>[];
@@ -59,7 +60,15 @@ class OverviewScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
             child: Column(
               children: [
-                _summaryRow('Income', income, AppColors.moss),
+                _summaryRow('Income so far', income, AppColors.moss),
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${money(expectedIncome)} expected this month',
+                    style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+                  ),
+                ),
                 const SizedBox(height: 10),
                 _summaryRow('Spent', spent, spent > income && income > 0 ? AppColors.rust : AppColors.ink),
                 const SizedBox(height: 10),
@@ -132,8 +141,8 @@ class OverviewScreen extends StatelessWidget {
             final source = ledger.incomes[index];
             final budgetName = _budgetName(ledger, source.budgetId);
             final detail = source.kind.isAutomatic
-                ? '${source.frequency?.label ?? 'Monthly'} · ${money(source.expectedDuring(now))} this month'
-                : 'Manual · ${money(source.expectedDuring(now))} logged this month';
+                ? '${source.frequency?.label ?? 'Monthly'} · ${money(source.receivedDuring(now))} so far of ${money(source.expectedDuring(now))}'
+                : 'Manual · ${money(source.receivedDuring(now))} logged this month';
             final shown = source.kind.isAutomatic ? source.paycheckAmount : source.totalLogged;
             return Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),

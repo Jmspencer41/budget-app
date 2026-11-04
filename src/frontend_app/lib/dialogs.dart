@@ -659,6 +659,8 @@ class _IncomeDialogState extends State<_IncomeDialog> {
   late IncomeKind _kind;
   late PayFrequency _frequency;
   late String _budgetId;
+  late DateTime _anchorDate;
+  late int _secondPayDay;
   String? _error;
 
   @override
@@ -673,6 +675,8 @@ class _IncomeDialogState extends State<_IncomeDialog> {
     _kind = existing?.kind ?? IncomeKind.paycheck;
     _frequency = existing?.frequency ?? PayFrequency.biweekly;
     _budgetId = existing?.budgetId ?? widget.lockedBudget?.id ?? widget.budgets.first.id;
+    _anchorDate = existing?.anchorDate ?? _today();
+    _secondPayDay = existing?.secondPayDay ?? (_anchorDate.day == 15 ? 31 : 15);
   }
 
   @override
@@ -683,6 +687,55 @@ class _IncomeDialogState extends State<_IncomeDialog> {
   }
 
   bool get _isPaycheck => _kind == IncomeKind.paycheck;
+
+  bool get _isSemimonthly => _frequency == PayFrequency.semimonthly;
+
+  Future<void> _pickAnchorDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _anchorDate,
+      firstDate: DateTime(2000),
+      lastDate: _today().add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _anchorDate = picked);
+  }
+
+  /// The payday picker, plus the second day for twice-a-month pay.
+  List<Widget> _scheduleFields() {
+    return [
+      const SizedBox(height: 12),
+      Text(
+        _isSemimonthly ? 'First payday' : 'Payday',
+        style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+      ),
+      TextButton(
+        key: const Key('income-payday-button'),
+        onPressed: _pickAnchorDate,
+        child: Text(_longDate(_anchorDate)),
+      ),
+      const Text(
+        'Pick your most recent payday, or your first one if it has not happened yet.',
+        style: TextStyle(fontSize: 12, color: AppColors.inkFade),
+      ),
+      if (_isSemimonthly) ...[
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          initialValue: _secondPayDay,
+          decoration: const InputDecoration(labelText: 'Second payday each month'),
+          items: [
+            for (var day = 1; day <= 31; day++)
+              DropdownMenuItem(value: day, child: Text(day == 31 ? '31 (last day)' : '$day')),
+          ],
+          onChanged: (day) => setState(() => _secondPayDay = day ?? _secondPayDay),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Paid on day ${_anchorDate.day} and day $_secondPayDay. In shorter months, days past the end use the last day.',
+          style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
+        ),
+      ],
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -713,7 +766,7 @@ class _IncomeDialogState extends State<_IncomeDialog> {
               const SizedBox(height: 8),
               Text(
                 _isPaycheck
-                    ? 'A set amount that is counted automatically each week, every two weeks, or month.'
+                    ? 'A set amount that is counted automatically on each payday.'
                     : 'A side hustle or other income you update by logging what came in.',
                 style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
               ),
@@ -753,6 +806,7 @@ class _IncomeDialogState extends State<_IncomeDialog> {
                     .toList(),
                 onChanged: (frequency) => setState(() => _frequency = frequency ?? _frequency),
               ),
+              ..._scheduleFields(),
             ],
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -776,12 +830,19 @@ class _IncomeDialogState extends State<_IncomeDialog> {
                 setState(() => _error = 'Enter the amount of each payment.');
                 return;
               }
+              if (_isSemimonthly && _secondPayDay == _anchorDate.day) {
+                setState(() => _error = 'Pick a second payday that is different from the first.');
+                return;
+              }
+              final secondPayDay = _isSemimonthly ? _secondPayDay : null;
               final existing = widget.existing;
               if (existing != null) {
                 existing
                   ..name = name
                   ..paycheckAmount = amount
-                  ..frequency = _frequency;
+                  ..frequency = _frequency
+                  ..anchorDate = _anchorDate
+                  ..secondPayDay = secondPayDay;
                 Navigator.of(context).pop(existing);
                 return;
               }
@@ -793,6 +854,8 @@ class _IncomeDialogState extends State<_IncomeDialog> {
                   kind: IncomeKind.paycheck,
                   frequency: _frequency,
                   paycheckAmount: amount,
+                  anchorDate: _anchorDate,
+                  secondPayDay: secondPayDay,
                 ),
               );
               return;

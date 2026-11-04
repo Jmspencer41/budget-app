@@ -212,9 +212,21 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                       '${money(budget.totalSpent)} / ${money(budget.totalLimit)}',
                       style: ledgerNumber(size: 28),
                     ),
-                    const SizedBox(height: 4),
+                                        const SizedBox(height: 4),
                     Text(
                       '${money(budget.spentDuring(now))} this month',
+                      style: const TextStyle(color: AppColors.inkFade, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Income this month', style: TextStyle(color: AppColors.inkFade)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${money(ledger.receivedIncomeFor(budget.id, now))} so far',
+                      style: ledgerNumber(size: 22, color: AppColors.moss),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${money(ledger.expectedIncomeFor(budget.id, now))} expected this month',
                       style: const TextStyle(color: AppColors.inkFade, fontSize: 13),
                     ),
                   ],
