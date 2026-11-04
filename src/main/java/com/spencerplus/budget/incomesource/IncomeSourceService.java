@@ -38,6 +38,20 @@ public class IncomeSourceService {
 		return incomeSourceRepository.save(incomeSource);
 	}
 	
+	public IncomeSource updateIncomeSource(UUID incomeSourceId, String name, long amountCents, Frequency frequency, LocalDate anchorDate, Integer secondPayDay) {
+		IncomeSource incomeSource = incomeSourceRepository.findById(incomeSourceId)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Income source not found")); // 404 if it doesn't exist
+		
+		validateSchedule(frequency, anchorDate, secondPayDay); // same rules as create
+		
+		incomeSource.setName(name);
+		incomeSource.setAmountCents(amountCents);
+		incomeSource.setFrequency(frequency);
+		incomeSource.setAnchorDate(anchorDate);
+		incomeSource.setSecondPayDay(secondPayDay);
+		return incomeSourceRepository.save(incomeSource);
+	}
+	
 	public void deleteIncomeSource(UUID incomeSourceId) {
 	    if (!incomeSourceRepository.existsById(incomeSourceId)) {
 	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Income source not found");
