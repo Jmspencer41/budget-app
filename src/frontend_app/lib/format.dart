@@ -53,3 +53,12 @@ double? parseMoney(String raw) {
   if (cleaned.isEmpty) return null;
   return double.tryParse(cleaned);
 }
+
+/// "Oct 30 to Nov 5". Adds years when the range crosses a year or isn't in the current year.
+String periodRange(DateTime start, DateTime end) {
+  final showYear = start.year != end.year || start.year != DateTime.now().year;
+  final from = showYear ? '${dateShort(start)}, ${start.year}' : dateShort(start);
+  final to = showYear ? '${dateShort(end)}, ${end.year}' : dateShort(end);
+  final sameDay = start.year == end.year && start.month == end.month && start.day == end.day;
+  return sameDay ? from : '$from to $to';
+}

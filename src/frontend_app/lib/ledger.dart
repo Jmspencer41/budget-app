@@ -175,6 +175,7 @@ class Ledger extends ChangeNotifier {
             name: category.name,
             kind: category.kind,
             frequency: category.frequency,
+            anchorDate: category.anchorDate,
             target: category.target,
           ));
       return;
@@ -272,6 +273,16 @@ class Ledger extends ChangeNotifier {
     }
     incomes.removeWhere((income) => income.id == incomeId);
     _touch();
+  }
+
+  Future<List<PeriodSummary>> loadHistory(String categoryId, {int periods = 12}) async {
+    if (!_remote) return [];
+    return _api.loadHistory(categoryId, periods: periods);
+  }
+
+  Future<List<Expense>> loadExpenses(String categoryId, {DateTime? from, DateTime? to}) async {
+    if (!_remote) return [];
+    return _api.loadExpenses(categoryId, from: from, to: to);
   }
 
   List<IncomeSource> incomeFor(String budgetId) {

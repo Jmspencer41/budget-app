@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import jakarta.validation.Valid;
@@ -29,9 +30,10 @@ public class CategoryController {
 				request.name(), 
 				request.categoryType(), 
 				request.frequency(), 
-				request.amountCents()
+				request.amountCents(),
+				request.anchorDate() 
 				);
-		return CategoryResponse.fromEntity(category);
+		return CategoryResponse.fromEntity(category, categoryService.getCurrentPeriod(category)); 
 	}
 	
 	@DeleteMapping("/{id}")
@@ -44,13 +46,18 @@ public class CategoryController {
 	    return categoryService.getRemainingAmount(id);
 	}
 	
-	@GetMapping("budget/{budgetId}")
+	@GetMapping("/{id}/history")
+	public List<CategoryPeriodResponse> getHistory(@PathVariable UUID id, @RequestParam(defaultValue = "6") int periods) { 
+		return categoryService.getHistory(id, periods);
+	}
+	
+	@GetMapping("/budget/{budgetId}") 
 	public List<CategoryResponse> getCategoriesForBudget(@PathVariable UUID budgetId) {
 		List<Category> categories = categoryService.getCategoriesForBudget(budgetId);
 		List<CategoryResponse> response = new ArrayList<>();
 		
 		for (Category category : categories) {
-			response.add(CategoryResponse.fromEntity(category));
+			response.add(CategoryResponse.fromEntity(category, categoryService.getCurrentPeriod(category))); 
 		}
 		return response;
 	}

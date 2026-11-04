@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Positive;
 import com.spencerplus.budget.category.Category.CategoryType;
 import com.spencerplus.budget.category.Category.Frequency;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record CreateCategoryRequest(
@@ -13,5 +14,6 @@ public record CreateCategoryRequest(
     @NotBlank String name,
     @NotNull CategoryType categoryType,
     Frequency frequency,
-    @Positive long amountCents
+    @Positive long amountCents,
+    LocalDate anchorDate
 ) {}

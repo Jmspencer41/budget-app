@@ -60,15 +60,18 @@ class BudgetApi {
     required String budgetId,
     required String name,
     required CategoryKind kind,
-    required PayFrequency frequency,
+    required CategoryFrequency frequency,
+    DateTime? anchorDate,
     required double target,
   }) async {
+    final isGoal = kind == CategoryKind.goal;
     await _object('POST', '/api/categories', {
       'budgetId': budgetId,
       'name': name,
-      'categoryType': kind == CategoryKind.goal ? 'GOAL' : 'RECURRING',
-      'frequency': _apiFrequency(frequency),
+      'categoryType': isGoal ? 'GOAL' : 'RECURRING',
+      'frequency': isGoal ? null : frequency.name.toUpperCase(),
       'amountCents': _cents(target),
+      'anchorDate': isGoal || anchorDate == null ? null : _date(anchorDate),
     });
   }
 
@@ -136,8 +139,37 @@ class BudgetApi {
 
   Future<void> deletePayment(String incomeEntryId) async {
     await _object('DELETE', '/api/incomeentries/$incomeEntryId');
-  }	
-	
+  }
+
+  Future<List<PeriodSummary>> loadHistory(String categoryId, {int periods = 12}) async {
+    final rows = await _list('/api/categories/$categoryId/history?periods=$periods');
+    final history = <PeriodSummary>[];
+    for (final row in rows) {
+      history.add(
+        PeriodSummary(
+          start: DateTime.parse(row['periodStart'] as String),
+          end: DateTime.parse(row['periodEnd'] as String),
+          limit: _dollars(row['limitCents']),
+          spent: _dollars(row['spentCents']),
+        ),
+      );
+    }
+    return history;
+  }
+
+  Future<List<Expense>> loadExpenses(String categoryId, {DateTime? from, DateTime? to}) async {
+    final params = <String>[];
+    if (from != null) params.add('from=${_date(from)}');
+    if (to != null) params.add('to=${_date(to)}');
+    final query = params.isEmpty ? '' : '?${params.join('&')}';
+    final rows = await _list('/api/transactions/category/$categoryId$query');
+    final expenses = <Expense>[];
+    for (final row in rows) {
+      expenses.add(_expense(row));
+    }
+    return expenses;
+  }
+
   Future<List<Budget>> loadBudgets(String ownerId) async {
     final rows = await _list('/api/budgets?userId=$ownerId');
     final budgets = <Budget>[];
@@ -186,17 +218,17 @@ class BudgetApi {
     return sources;
   }
 
-Future<String> _userIdFor(String name, String email) async {
-  try {
-    final existing = await _object('GET', '/api/users/by-email?email=${Uri.encodeQueryComponent(email)}');
-    return existing['id'] as String;
-  } on ApiException catch (error) {
-    if (error.message.contains('(404)')) {
-      throw ApiException('No account found for $email. They need to sign up first.');
+  Future<String> _userIdFor(String name, String email) async {
+    try {
+      final existing = await _object('GET', '/api/users/by-email?email=${Uri.encodeQueryComponent(email)}');
+      return existing['id'] as String;
+    } on ApiException catch (error) {
+      if (error.message.contains('(404)')) {
+        throw ApiException('No account found for $email. They need to sign up first.');
+      }
+      rethrow;
     }
-    rethrow;
   }
-}
 
   Future<List<Member>> _members(String budgetId) async {
     final rows = await _list('/api/budgetmembers/budget/$budgetId');
@@ -216,29 +248,32 @@ Future<String> _userIdFor(String name, String email) async {
     final categories = <BudgetCategory>[];
     for (final row in rows) {
       final id = row['id'] as String;
-      final expenses = await _list('/api/transactions/category/$id');
+      final expenses = await loadExpenses(id);
       categories.add(
         BudgetCategory(
           id: id,
           name: row['name'] as String? ?? '',
           kind: row['categoryType'] == 'GOAL' ? CategoryKind.goal : CategoryKind.recurring,
-          frequency: _payFrequency(row['frequency'] as String?),
+          frequency: _categoryFrequency(row['frequency'] as String?),
+          anchorDate: DateTime.tryParse(row['anchorDate'] as String? ?? ''),
+          periodStart: DateTime.tryParse(row['periodStart'] as String? ?? ''),
+          periodEnd: DateTime.tryParse(row['periodEnd'] as String? ?? ''),
           target: _dollars(row['amountCents']),
-          expenses: [
-            for (final expense in expenses)
-              Expense(
-                id: expense['id'] as String? ?? '',
-                label: (expense['merchant'] as String?)?.isNotEmpty == true
-                    ? expense['merchant'] as String
-                    : (expense['description'] as String? ?? 'Expense'),
-                amount: _dollars(expense['amountCents']),
-                date: DateTime.tryParse(expense['transactionDate'] as String? ?? '') ?? DateTime.now(),
-              ),
-          ],
+          expenses: expenses,
         ),
       );
     }
     return categories;
+  }
+
+  Expense _expense(Map<String, dynamic> row) {
+    final merchant = row['merchant'] as String?;
+    return Expense(
+      id: row['id'] as String? ?? '',
+      label: merchant != null && merchant.isNotEmpty ? merchant : (row['description'] as String? ?? 'Expense'),
+      amount: _dollars(row['amountCents']),
+      date: DateTime.tryParse(row['transactionDate'] as String? ?? '') ?? DateTime.now(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _list(String path) async {
@@ -312,6 +347,11 @@ PayFrequency _payFrequency(String? raw) {
     default:
       return PayFrequency.monthly;
   }
+}
+
+CategoryFrequency _categoryFrequency(String? raw) {
+  if (raw == null) return CategoryFrequency.monthly;
+  return CategoryFrequency.values.asNameMap()[raw.toLowerCase()] ?? CategoryFrequency.monthly;
 }
 
 BudgetRole _role(String? raw) {

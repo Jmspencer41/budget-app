@@ -34,7 +34,19 @@ public class TransactionService {
 	    transactionRepository.deleteById(transactionId);
 	}
 	
-	public List<Transaction> getTransactionForCategory(UUID categoryId) {
+	public List<Transaction> getTransactionForCategory(UUID categoryId, LocalDate from, LocalDate to) {
+		if (from != null && to != null) {
+			if (from.isAfter(to)) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "'from' must be on or before 'to'");
+			}
+			return transactionRepository.findByCategoryIdAndTransactionDateBetween(categoryId, from, to);
+		}
+		if (from != null) {
+			return transactionRepository.findByCategoryIdAndTransactionDateGreaterThanEqual(categoryId, from);
+		}
+		if (to != null) { 
+			return transactionRepository.findByCategoryIdAndTransactionDateLessThanEqual(categoryId, to); 
+		}
 		return transactionRepository.findByCategoryId(categoryId);
 	}
 	

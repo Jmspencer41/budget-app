@@ -1,5 +1,6 @@
 package com.spencerplus.budget.category;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import com.spencerplus.budget.category.Category.CategoryType;
@@ -13,11 +14,22 @@ public record CategoryResponse(
 		CategoryType categoryType,
 		Frequency frequency,
 		long amountCents,
-		LocalDateTime createdAt
+		LocalDateTime createdAt,
+		LocalDate anchorDate,
+		LocalDate periodStart, 
+		LocalDate periodEnd
 		
 ) {
 	
-	public static CategoryResponse fromEntity(Category category) {
+	public static CategoryResponse fromEntity(Category category, CategoryPeriod currentPeriod) {
+		
+		LocalDate periodStart = null; 
+		LocalDate periodEnd = null;
+		if (currentPeriod != null) { 
+			periodStart = currentPeriod.start();
+			periodEnd = currentPeriod.end();
+		}
+		
 		return new CategoryResponse(
 				category.getId(),
 				category.getBudgetId(),
@@ -25,7 +37,10 @@ public record CategoryResponse(
 				category.getCategoryType(),
 				category.getFrequency(),
 				category.getAmountCents(),
-				category.getCreatedAt()
+				category.getCreatedAt(),
+				category.getAnchorDate(),
+				periodStart, 
+				periodEnd
 		);
 	
 	}

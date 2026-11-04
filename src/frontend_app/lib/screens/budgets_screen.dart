@@ -5,6 +5,7 @@ import '../format.dart';
 import '../ledger.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'category_history_screen.dart';
 import 'income_screen.dart';
 
 class BudgetsScreen extends StatelessWidget {
@@ -272,7 +273,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                           ],
                         ),
                         Text(
-                          isGoal ? 'Savings goal' : '${category.kind.label} · ${category.frequency.label}',
+                          isGoal
+                              ? 'Savings goal'
+                              : [category.frequency.label, if (category.periodLabel != null) category.periodLabel!].join(' · '),
                           style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
                         ),
                         const SizedBox(height: 6),
@@ -366,10 +369,14 @@ class CategoryScreen extends StatefulWidget {
 }
 
 class _CategoryScreenState extends State<CategoryScreen> {
+  static const _pastPeriodsShown = 3;
+  Future<List<PeriodSummary>>? _pastFuture;
+
   @override
   void initState() {
     super.initState();
     widget.ledger.addListener(_onLedger);
+    _loadPast();
   }
 
   @override
@@ -394,7 +401,25 @@ class _CategoryScreenState extends State<CategoryScreen> {
       Navigator.of(context).pop();
       return;
     }
-    setState(() {});
+    setState(_loadPast);
+  }
+
+  void _loadPast() {
+    final category = _currentCategory ?? widget.category;
+    if (!category.hasPeriod) {
+      _pastFuture = null;
+      return;
+    }
+    _pastFuture = widget.ledger.loadHistory(category.id, periods: _pastPeriodsShown + 1);
+  }
+
+  void _openHistory() {
+    final category = _currentCategory ?? widget.category;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CategoryHistoryScreen(ledger: widget.ledger, category: category),
+      ),
+    );
   }
 
   Future<void> _addExpense() async {
@@ -409,6 +434,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
     final category = _currentCategory ?? widget.category;
     final isGoal = category.kind == CategoryKind.goal;
     final color = isGoal ? AppColors.gold : (category.isOver ? AppColors.rust : AppColors.moss);
+    final expenses = category.periodExpenses;
     return Scaffold(
       appBar: AppBar(title: Text(category.name)),
       body: SpaceBackground(
@@ -433,7 +459,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     Text(
                       isGoal
                           ? '${money(category.remaining)} left to save'
-                          : '${money(category.remaining)} left · ${category.frequency.label}',
+                          : '${money(category.remaining)} left · ${category.periodLabel ?? category.frequency.label}',
                       style: TextStyle(color: category.isOver ? AppColors.rust : AppColors.inkFade, fontSize: 13),
                     ),
                     const SizedBox(height: 10),
@@ -444,12 +470,12 @@ class _CategoryScreenState extends State<CategoryScreen> {
             ),
             SliverToBoxAdapter(
               child: SectionHeader(
-                title: isGoal ? 'Contributions' : 'Expenses',
+                title: isGoal ? 'Contributions' : (category.hasPeriod ? 'Expenses this period' : 'Expenses'),
                 onAdd: _addExpense,
                 addKey: const Key('add-expense'),
               ),
             ),
-            if (category.expenses.isEmpty)
+            if (expenses.isEmpty)
               SliverToBoxAdapter(
                 child: EmptyNote(
                   isGoal
@@ -458,9 +484,9 @@ class _CategoryScreenState extends State<CategoryScreen> {
                 ),
               ),
             SliverList.builder(
-              itemCount: category.expenses.length,
+              itemCount: expenses.length,
               itemBuilder: (context, index) {
-                final expense = category.expenses[index];
+                final expense = expenses[index];
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
                   child: Row(
@@ -488,6 +514,41 @@ class _CategoryScreenState extends State<CategoryScreen> {
                 );
               },
             ),
+            if (_pastFuture != null) ...[
+              const SliverToBoxAdapter(child: SectionHeader(title: 'Past periods')),
+              SliverToBoxAdapter(
+                child: FutureBuilder<List<PeriodSummary>>(
+                  future: _pastFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return const EmptyNote('Could not load past periods.');
+                    }
+                    if (!snapshot.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final history = snapshot.data!;
+                    final past = history.length > 1 ? history.sublist(1) : <PeriodSummary>[];
+                    if (past.isEmpty) {
+                      return const EmptyNote('No past periods yet. This is the first one.');
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final period in past) PeriodRow(period: period, isCurrent: false, ledger: widget.ledger, category: category),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: TextButton(onPressed: _openHistory, child: const Text('See all history')),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 32)),
           ],
         ),
       ),

@@ -7,6 +7,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -41,6 +43,9 @@ public class Category {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
     
+    @Column(name = "anchor_date")
+    private LocalDate anchorDate;
+    
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
     
@@ -61,5 +66,8 @@ public class Category {
     
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    
+    public LocalDate getAnchorDate() { return anchorDate; }
+    public void setAnchorDate(LocalDate anchorDate) { this.anchorDate = anchorDate; }
     
 }

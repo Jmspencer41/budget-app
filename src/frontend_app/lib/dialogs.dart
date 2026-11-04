@@ -251,11 +251,26 @@ class _CategoryDialog extends StatefulWidget {
   State<_CategoryDialog> createState() => _CategoryDialogState();
 }
 
+enum _StartMode { calendar, specific }
+
+const _weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+DateTime _today() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day);
+}
+
+String _longDate(DateTime date) => '${dateShort(date)}, ${date.year}';
+
 class _CategoryDialogState extends State<_CategoryDialog> {
   final _nameController = TextEditingController();
   final _amountController = TextEditingController();
   CategoryKind _kind = CategoryKind.recurring;
-  PayFrequency _frequency = PayFrequency.monthly;
+  CategoryFrequency _frequency = CategoryFrequency.monthly;
+  _StartMode _startMode = _StartMode.calendar;
+  int _weekday = DateTime.now().weekday;
+  int _dayOfMonth = DateTime.now().day;
+  DateTime _specificDate = _today();
   String? _error;
 
   @override
@@ -265,9 +280,170 @@ class _CategoryDialogState extends State<_CategoryDialog> {
     super.dispose();
   }
 
+  DateTime? _anchorDate() {
+    if (_kind == CategoryKind.goal) return null;
+    final today = _today();
+    switch (_frequency) {
+      case CategoryFrequency.daily:
+        return today;
+      case CategoryFrequency.weekly:
+        final daysBack = (today.weekday - _weekday + 7) % 7;
+        return DateTime(today.year, today.month, today.day - daysBack);
+      case CategoryFrequency.biweekly:
+        return _specificDate;
+      case CategoryFrequency.monthly:
+        if (_startMode == _StartMode.calendar) return DateTime(today.year, today.month, 1);
+        return _mostRecentDayOfMonth(today, _dayOfMonth);
+      case CategoryFrequency.quarterly:
+        if (_startMode == _StartMode.calendar) {
+          return DateTime(today.year, ((today.month - 1) ~/ 3) * 3 + 1, 1);
+        }
+        return _specificDate;
+      case CategoryFrequency.semiannually:
+        if (_startMode == _StartMode.calendar) {
+          return DateTime(today.year, today.month <= 6 ? 1 : 7, 1);
+        }
+        return _specificDate;
+      case CategoryFrequency.yearly:
+        if (_startMode == _StartMode.calendar) return DateTime(today.year, 1, 1);
+        return _specificDate;
+    }
+  }
+
+  DateTime _mostRecentDayOfMonth(DateTime today, int day) {
+    var year = today.year;
+    var month = today.month;
+    for (var i = 0; i < 12; i++) {
+      final daysInMonth = DateTime(year, month + 1, 0).day;
+      if (day <= daysInMonth) {
+        final candidate = DateTime(year, month, day);
+        if (!candidate.isAfter(today)) return candidate;
+      }
+      month--;
+      if (month == 0) {
+        month = 12;
+        year--;
+      }
+    }
+    return DateTime(today.year, today.month, 1);
+  }
+
+  Future<void> _pickSpecificDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _specificDate,
+      firstDate: DateTime(2000),
+      lastDate: _today(),
+    );
+    if (picked != null) setState(() => _specificDate = picked);
+  }
+
+  String _calendarLabel() {
+    switch (_frequency) {
+      case CategoryFrequency.monthly:
+        return '1st of the month';
+      case CategoryFrequency.quarterly:
+        return 'Calendar quarters';
+      case CategoryFrequency.semiannually:
+        return 'January and July';
+      case CategoryFrequency.yearly:
+        return 'January 1';
+      default:
+        return 'Calendar';
+    }
+  }
+
+  Widget _startModeChips() {
+    return Wrap(
+      spacing: 8,
+      children: [
+        ChoiceChip(
+          label: Text(_calendarLabel()),
+          selected: _startMode == _StartMode.calendar,
+          onSelected: (_) => setState(() => _startMode = _StartMode.calendar),
+        ),
+        ChoiceChip(
+          label: Text(_frequency == CategoryFrequency.monthly ? 'Specific day' : 'Specific date'),
+          selected: _startMode == _StartMode.specific,
+          onSelected: (_) => setState(() => _startMode = _StartMode.specific),
+        ),
+      ],
+    );
+  }
+
+  Widget _specificDateButton(String label) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: AppColors.inkFade)),
+        TextButton(onPressed: _pickSpecificDate, child: Text(_longDate(_specificDate))),
+      ],
+    );
+  }
+
+  List<Widget> _startOptions() {
+    if (_kind == CategoryKind.goal) return [];
+    switch (_frequency) {
+      case CategoryFrequency.daily:
+        return [];
+      case CategoryFrequency.weekly:
+        return [
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            initialValue: _weekday,
+            decoration: const InputDecoration(labelText: 'Week starts on'),
+            items: [
+              for (var day = 1; day <= 7; day++)
+                DropdownMenuItem(value: day, child: Text(_weekdayNames[day - 1])),
+            ],
+            onChanged: (day) => setState(() => _weekday = day ?? _weekday),
+          ),
+        ];
+      case CategoryFrequency.biweekly:
+        return [
+          const SizedBox(height: 12),
+          _specificDateButton('First day of a 2 week period'),
+        ];
+      case CategoryFrequency.monthly:
+        return [
+          const SizedBox(height: 12),
+          _startModeChips(),
+          if (_startMode == _StartMode.specific) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              initialValue: _dayOfMonth,
+              decoration: const InputDecoration(labelText: 'Day of the month'),
+              items: [
+                for (var day = 1; day <= 31; day++)
+                  DropdownMenuItem(value: day, child: Text('$day')),
+              ],
+              onChanged: (day) => setState(() => _dayOfMonth = day ?? _dayOfMonth),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'In shorter months, days past the end use the last day.',
+              style: TextStyle(fontSize: 12, color: AppColors.inkFade),
+            ),
+          ],
+        ];
+      case CategoryFrequency.quarterly:
+      case CategoryFrequency.semiannually:
+      case CategoryFrequency.yearly:
+        return [
+          const SizedBox(height: 12),
+          _startModeChips(),
+          if (_startMode == _StartMode.specific) ...[
+            const SizedBox(height: 8),
+            _specificDateButton('First day of a period'),
+          ],
+        ];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final recurring = _kind == CategoryKind.recurring;
+    final anchor = _anchorDate();
     return AlertDialog(
       title: const Text('Add category'),
       content: SingleChildScrollView(
@@ -292,13 +468,24 @@ class _CategoryDialogState extends State<_CategoryDialog> {
             ),
             if (recurring) ...[
               const SizedBox(height: 12),
-              DropdownButtonFormField<PayFrequency>(
+              DropdownButtonFormField<CategoryFrequency>(
                 initialValue: _frequency,
                 decoration: const InputDecoration(labelText: 'Limit resets'),
-                items: PayFrequency.values
+                items: CategoryFrequency.values
                     .map((frequency) => DropdownMenuItem(value: frequency, child: Text(frequency.label)))
                     .toList(),
-                onChanged: (frequency) => setState(() => _frequency = frequency ?? _frequency),
+                onChanged: (frequency) => setState(() {
+                  _frequency = frequency ?? _frequency;
+                  _startMode = _StartMode.calendar;
+                }),
+              ),
+            ],
+            ..._startOptions(),
+            if (anchor != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Current period starts ${_longDate(anchor)}.',
+                style: const TextStyle(fontSize: 12, color: AppColors.inkFade),
               ),
             ],
             const SizedBox(height: 12),
@@ -338,6 +525,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 name: name,
                 kind: _kind,
                 frequency: _frequency,
+                anchorDate: anchor,
                 target: amount,
               ),
             );
@@ -347,7 +535,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
       ],
     );
   }
-}
+} 
 
 Future<Expense?> showExpenseDialog(BuildContext context) {
   return showDialog<Expense>(

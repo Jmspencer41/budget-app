@@ -32,6 +32,29 @@ extension CategoryKindLabel on CategoryKind {
   String get targetLabel => this == CategoryKind.recurring ? 'Limit' : 'Goal amount';
 }
 
+enum CategoryFrequency { daily, weekly, biweekly, monthly, quarterly, semiannually, yearly }
+
+extension CategoryFrequencyLabel on CategoryFrequency {
+  String get label {
+    switch (this) {
+      case CategoryFrequency.daily:
+        return 'Daily';
+      case CategoryFrequency.weekly:
+        return 'Weekly';
+      case CategoryFrequency.biweekly:
+        return 'Every 2 weeks';
+      case CategoryFrequency.monthly:
+        return 'Monthly';
+      case CategoryFrequency.quarterly:
+        return 'Quarterly';
+      case CategoryFrequency.semiannually:
+        return 'Every 6 months';
+      case CategoryFrequency.yearly:
+        return 'Yearly';
+    }
+  }
+}
+
 enum PayFrequency { weekly, biweekly, monthly }
 
 extension PayFrequencyLabel on PayFrequency {
@@ -157,7 +180,10 @@ class BudgetCategory {
   final String id;
   String name;
   CategoryKind kind;
-  PayFrequency frequency;
+  CategoryFrequency frequency;
+  DateTime? anchorDate;
+  DateTime? periodStart;
+  DateTime? periodEnd;
   double target;
   final List<Expense> expenses;
 
@@ -166,11 +192,36 @@ class BudgetCategory {
     required this.name,
     required this.kind,
     required this.frequency,
+    this.anchorDate,
+    this.periodStart,
+    this.periodEnd,
     required this.target,
     List<Expense>? expenses,
   }) : expenses = expenses ?? [];
 
-  double get current => expenses.fold(0, (sum, expense) => sum + expense.amount);
+  /// True when the server gave us the current period. False for goals and device-only mode.
+  bool get hasPeriod => kind == CategoryKind.recurring && periodStart != null && periodEnd != null;
+
+  /// Expenses inside the current period, or all expenses when there is no period.
+  List<Expense> get periodExpenses {
+    if (!hasPeriod) return expenses;
+    final start = _dateOnly(periodStart!);
+    final end = _dateOnly(periodEnd!);
+    final result = <Expense>[];
+    for (final expense in expenses) {
+      final day = _dateOnly(expense.date);
+      if (!day.isBefore(start) && !day.isAfter(end)) result.add(expense);
+    }
+    return result;
+  }
+
+  double get current {
+    var sum = 0.0;
+    for (final expense in periodExpenses) {
+      sum += expense.amount;
+    }
+    return sum;
+  }
 
   double get remaining => target - current;
 
@@ -178,11 +229,26 @@ class BudgetCategory {
 
   double get fraction => target == 0 ? 0 : (current / target).clamp(0, 1.4).toDouble();
 
+  /// "Nov 1 to Nov 30", or null when there is no period.
+  String? get periodLabel {
+    if (!hasPeriod) return null;
+    final start = periodStart!;
+    final end = periodEnd!;
+    if (start.year != end.year) {
+      return '${dateShort(start)}, ${start.year} to ${dateShort(end)}, ${end.year}';
+    }
+    if (_dateOnly(start) == _dateOnly(end)) return dateShort(start);
+    return '${dateShort(start)} to ${dateShort(end)}';
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'kind': kind.name,
         'frequency': frequency.name,
+        'anchorDate': anchorDate?.toIso8601String(),
+        'periodStart': periodStart?.toIso8601String(),
+        'periodEnd': periodEnd?.toIso8601String(),
         'target': target,
         'expenses': expenses.map((expense) => expense.toJson()).toList(),
       };
@@ -192,12 +258,17 @@ class BudgetCategory {
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       kind: CategoryKind.values.asNameMap()[json['kind']] ?? CategoryKind.recurring,
-      frequency: PayFrequency.values.asNameMap()[json['frequency']] ?? PayFrequency.monthly,
+      frequency: CategoryFrequency.values.asNameMap()[json['frequency']] ?? CategoryFrequency.monthly,
+      anchorDate: DateTime.tryParse(json['anchorDate'] as String? ?? ''),
+      periodStart: DateTime.tryParse(json['periodStart'] as String? ?? ''),
+      periodEnd: DateTime.tryParse(json['periodEnd'] as String? ?? ''),
       target: (json['target'] as num?)?.toDouble() ?? 0,
       expenses: _mapList(json['expenses'], Expense.fromJson),
     );
   }
 }
+
+DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 
 class Budget {
   final String id;
@@ -248,7 +319,7 @@ class Budget {
           id: 'migrated-spending',
           name: 'Spending',
           kind: CategoryKind.recurring,
-          frequency: PayFrequency.monthly,
+          frequency: CategoryFrequency.monthly,
           target: spent,
           expenses: looseExpenses,
         ),
@@ -346,4 +417,25 @@ class IncomeSource {
 List<T> _mapList<T>(Object? raw, T Function(Map<String, dynamic>) decode) {
   if (raw is! List) return [];
   return raw.whereType<Map>().map((item) => decode(Map<String, dynamic>.from(item))).toList();
+}
+
+/// One row from GET /api/categories/{id}/history.
+class PeriodSummary {
+  final DateTime start;
+  final DateTime end;
+  final double limit;
+  final double spent;
+
+  const PeriodSummary({
+    required this.start,
+    required this.end,
+    required this.limit,
+    required this.spent,
+  });
+
+  double get remaining => limit - spent;
+
+  bool get isOver => spent > limit;
+
+  double get fraction => limit == 0 ? 0 : (spent / limit).clamp(0, 1.4).toDouble();
 }
