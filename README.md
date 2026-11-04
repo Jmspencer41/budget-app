@@ -1,6 +1,7 @@
 # Budget+
 
 An open source, self hosted budgeting app for households. Run it on your own server, keep your financial data at home, and share budgets with the people you live with.
+If you are interested in helping develop this project, please check [DEVELOPMENT.md](DEVELOPMENT.md) for instructions.
 
 > **Name note:** the final name is still being decided. You may see "Budget Buddy" in the app itself.
 
