@@ -13,10 +13,14 @@ public record IncomeSourceResponse (
 	long amountCents,
 	Frequency frequency,
 	boolean autoGenerate,
+	LocalDate anchorDate,
+	Integer secondPayDay,
+	long receivedThisMonthCents,
+	long expectedThisMonthCents,
 	LocalDate nextPayDate,
 	LocalDateTime createdAt
 	) {
-	public static IncomeSourceResponse fromEntity(IncomeSource incomeSource) {
+	public static IncomeSourceResponse fromEntity(IncomeSource incomeSource, long receivedThisMonthCents, long expectedThisMonthCents, LocalDate nextPayDate) {
 		return new IncomeSourceResponse(
 				incomeSource.getId(),
 				incomeSource.getUserId(),
@@ -25,7 +29,11 @@ public record IncomeSourceResponse (
 				incomeSource.getAmountCents(),
 				incomeSource.getFrequency(),
 				incomeSource.isAutoGenerate(),
-				incomeSource.getNextPayDate(),
+				incomeSource.getAnchorDate(),
+				incomeSource.getSecondPayDay(),
+				receivedThisMonthCents,
+				expectedThisMonthCents,
+				nextPayDate,
 				incomeSource.getCreatedAt()
 		);
 	}

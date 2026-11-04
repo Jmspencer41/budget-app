@@ -1,6 +1,8 @@
 package com.spencerplus.budget.incomesource;
 
 import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
@@ -17,15 +19,21 @@ public class IncomeSourceController {
 	
 	@GetMapping("/budget/{budgetId}")
 	public List<IncomeSourceResponse> listForBudget(@PathVariable UUID budgetId) {
-		return incomeSourceService.listForBudget(budgetId).stream().map(IncomeSourceResponse::fromEntity).toList();
+		LocalDate asOf = LocalDate.now();
+		List<IncomeSource> incomeSources = incomeSourceService.listForBudget(budgetId);
+		List<IncomeSourceResponse> responses = new ArrayList<>();
+		for (IncomeSource incomeSource : incomeSources) {
+			responses.add(incomeSourceService.toResponse(incomeSource, asOf));
+		}
+		return responses;
 	}
 
 	@PostMapping
 	public IncomeSourceResponse createIncomeSource(@Valid @RequestBody CreateIncomeSourceRequest request) {
 		IncomeSource incomeSource = incomeSourceService.createIncomeSource(
-				request.userId(), request.budgetId(), request.name(), request.amountCents(), request.frequency(), request.autoGenerate(), request.nextPayDate()
+				request.userId(), request.budgetId(), request.name(), request.amountCents(), request.frequency(), request.autoGenerate(), request.anchorDate(), request.secondPayDay()
 				);
-		return IncomeSourceResponse.fromEntity(incomeSource);
+		return incomeSourceService.toResponse(incomeSource, LocalDate.now());
 	}
 	
 	@DeleteMapping("/{id}")

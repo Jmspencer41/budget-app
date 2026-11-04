@@ -35,13 +35,16 @@ public class IncomeSource {
     @Column(nullable = false)
     private Frequency frequency;
     
-    public enum Frequency { DAILY, WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR }
+    public enum Frequency { WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY, IRREGULAR }
     
     @Column(name = "auto_generate", nullable = false)
     private boolean autoGenerate;
         
-    @Column(name = "next_pay_date")
-    private LocalDate nextPayDate;
+    @Column(name = "anchor_date")
+    private LocalDate anchorDate;
+    
+    @Column(name = "second_pay_day")
+    private Integer secondPayDay;
     
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -68,11 +71,13 @@ public class IncomeSource {
     public boolean isAutoGenerate() { return autoGenerate; }
     public void setAutoGenerate( boolean autoGenerate ) { this.autoGenerate = autoGenerate; }
     
-    public LocalDate getNextPayDate() { return nextPayDate; }
-    public void setNextPayDate(LocalDate nextPayDate) { this.nextPayDate = nextPayDate; }
+    public LocalDate getAnchorDate() { return anchorDate; }
+    public void setAnchorDate(LocalDate anchorDate) { this.anchorDate = anchorDate; }
+    
+    public Integer getSecondPayDay() { return secondPayDay; }
+    public void setSecondPayDay(Integer secondPayDay) { this.secondPayDay = secondPayDay; }
     
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt( LocalDateTime createdAt) { this.createdAt = createdAt; }
-    
     
 }
