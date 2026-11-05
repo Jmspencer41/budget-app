@@ -49,11 +49,18 @@ class BudgetApi {
     required BudgetRole role,
   }) async {
     final userId = await _userIdFor(name, email);
-    await _object('POST', '/api/budgetmembers', {
-      'budgetId': budgetId,
-      'userId': userId,
-      'role': role.name.toUpperCase(),
-    });
+    try {
+      await _object('POST', '/api/budgetmembers', {
+        'budgetId': budgetId,
+        'userId': userId,
+        'role': role.name.toUpperCase(),
+      });
+    } on ApiException catch (error) {
+      if (error.message.contains('(409)')) {
+        throw ApiException('That person is already on this budget.');
+      }
+      rethrow;
+    }
   }
 
   Future<void> addCategory({
