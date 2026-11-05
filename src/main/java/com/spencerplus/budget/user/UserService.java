@@ -1,5 +1,7 @@
 package com.spencerplus.budget.user;
 
+import java.time.LocalDate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -16,14 +18,22 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    public User createUser(String firstName, String lastName, String email, String rawPassword, java.time.LocalDate birthday) {
+    public User createUser(String firstName, String lastName, String email, String rawPassword, LocalDate birthday) {
+        if (userRepository.findByEmail(email).isPresent()) { // checked before hashing, since BCrypt is slow on purpose
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "An account with this email already exists");
+        }
+
         User user = new User();
         user.setFirstName(firstName);
         user.setLastName(lastName);
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
         user.setBirthday(birthday);
-        return userRepository.save(user);
+        try {
+            return userRepository.saveAndFlush(user); // insert now, so a race on the UNIQUE email surfaces here
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "An account with this email already exists");
+        }
     }
 
     public User findByEmail(String email) {

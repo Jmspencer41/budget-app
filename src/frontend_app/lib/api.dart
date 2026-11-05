@@ -21,13 +21,20 @@ class BudgetApi {
   BudgetApi([String? base]) : base = base ?? apiBaseUrl;
 
   Future<Account> createUser(Account account) async {
-    final body = await _object('POST', '/api/users', {
-      'firstName': account.firstName,
-      'lastName': account.lastName,
-      'email': account.email,
-      'password': account.password,
-    });
-    return _account(body, account.password);
+    try {
+      final body = await _object('POST', '/api/users', {
+        'firstName': account.firstName,
+        'lastName': account.lastName,
+        'email': account.email,
+        'password': account.password,
+      });
+      return _account(body, account.password);
+    } on ApiException catch (error) {
+      if (error.message.contains('(409)')) {
+        throw ApiException('An account with ${account.email} already exists.');
+      }
+      rethrow;
+    }
   }
 
   Future<Account> login(String email, String password) async {

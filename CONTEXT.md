@@ -74,7 +74,8 @@ budget-app/
 └── src/
     ├── test/java/com/spencerplus/budget/
     │   ├── budgetmembers/BudgetMemberServiceTest.java   JUnit + Mockito tests for adding members (no database)
-    │   └── incomesource/IncomeSourcePayDatesTest.java   JUnit tests for the pay date math (no database)
+    │   ├── incomesource/IncomeSourcePayDatesTest.java   JUnit tests for the pay date math (no database)
+    │   └── user/UserServiceTest.java                    JUnit + Mockito tests for signup (no database)
     ├── main/
     │   ├── java/com/spencerplus/budget/
     │   │   ├── BudgetApplication.java     Spring Boot entry point (main method)
@@ -237,7 +238,7 @@ The `z` on the volume is for SELinux on Fedora, which otherwise blocks the conta
 | Security | `spring-boot-starter-security` (BCrypt hashing, CORS) |
 | Validation | `spring-boot-starter-validation` (`@NotNull`, `@NotBlank`, `@Positive`, `@Min`) |
 | JWT | `jjwt-api`, `jjwt-impl`, `jjwt-jackson` 0.12.6. **In the pom but not used yet.** |
-| Testing | `spring-boot-starter-test`, `spring-security-test`, Testcontainers 1.20.1 (`junit-jupiter`, `postgresql`). Two test classes so far: `IncomeSourcePayDatesTest` (plain JUnit) and `BudgetMemberServiceTest` (JUnit with Mockito mocks, which come with `spring-boot-starter-test`). Neither starts Spring or needs a database. |
+| Testing | `spring-boot-starter-test`, `spring-security-test`, Testcontainers 1.20.1 (`junit-jupiter`, `postgresql`). Three test classes so far: `IncomeSourcePayDatesTest` (plain JUnit), plus `BudgetMemberServiceTest` and `UserServiceTest` (JUnit with Mockito mocks, which come with `spring-boot-starter-test`). None of them starts Spring or needs a database. |
 | Packaging | `spring-boot-maven-plugin` builds one runnable "fat jar": `budget-app-0.0.1-SNAPSHOT.jar` |
 
 No Lombok. Getters and setters are written by hand.
@@ -324,8 +325,8 @@ What this means today: **there is no authentication.** Login only checks the pas
   - **404**: a user, budget, category, transaction, member, income source, or income entry that does not exist (every delete, `GET /api/categories/{id}/remaining`, and `/history`).
   - **400** also: adding a budget member with role `OWNER`.
   - **404** also: adding a member to a budget or user that does not exist.
-  - **409**: deleting the `OWNER` membership; adding a user who is already a member of the budget.
-- Everything else that goes wrong becomes **500**. There is no `@ControllerAdvice` global error handler yet. Examples: a duplicate email on signup, a foreign key that points at nothing (for example a category for a budget ID that does not exist).
+  - **409**: deleting the `OWNER` membership; adding a user who is already a member of the budget; signing up with an email that already has an account.
+- Everything else that goes wrong becomes **500**. There is no `@ControllerAdvice` global error handler yet. Examples: a foreign key that points at nothing (for example a category for a budget ID that does not exist).
 - The `categories` and `income_sources` tables also have **CHECK constraints** for their anchor rules (section 6.2). The service validation catches bad input first, so the constraints are a safety net; if one ever fires, it surfaces as a 500.
 - Error bodies look like `{"timestamp": "...", "status": 409, "error": "Conflict", "message": "User is already a member of this budget", "path": "/api/..."}`. The `message` field comes from `server.error.include-message: always` in `application.yml` (Spring Boot leaves it out by default). Every current message is safe to show; login's is deliberately vague ("Invalid email or password").
 
@@ -485,7 +486,7 @@ Foreign keys pointing at `users` have **no cascade**. There is no endpoint to de
 - **Creating a budget also creates the owner's `OWNER` membership row**, in the same database transaction.
 - **The owner membership cannot be deleted** on its own (409). It only goes away when the whole budget is deleted.
 - **The owner membership can only be created with the budget.** `POST /api/budgetmembers` rejects role `OWNER` with 400.
-- **Duplicate members are checked in Java and guaranteed by the database.** The service looks for an existing row first, for a clean 409. If two identical requests race past that check, the `UNIQUE (budget_id, user_id)` constraint stops the second insert, and the service turns that error into the same 409.
+- **Duplicates are checked in Java and guaranteed by the database.** This applies to both members and signup emails. The service looks for an existing row first, for a clean 409. If two identical requests race past that check, the UNIQUE constraint (`budget_id, user_id` for members, `email` for users) stops the second insert, and the service turns that error into the same 409.
 
 ---
 
@@ -496,7 +497,7 @@ Foreign keys pointing at `users` have **no cascade**. There is no endpoint to de
 - **Entity** `User`: `id, firstName, lastName, email, passwordHash, birthday, createdAt`.
 - **Repository** `UserRepository`: `findByEmail(String) → Optional<User>`.
 - **Service** `UserService`:
-  - `createUser(firstName, lastName, email, rawPassword, birthday)`: hashes the password with BCrypt and saves. A duplicate email hits the UNIQUE constraint and returns 500.
+  - `createUser(firstName, lastName, email, rawPassword, birthday)`: if `findByEmail` already finds the email, throws **409** "An account with this email already exists". This check runs **before** hashing, since BCrypt is slow on purpose. Then it hashes the password with BCrypt and saves with `saveAndFlush`; a `DataIntegrityViolationException` (two signups with the same email at once) becomes the same 409. Emails are compared exactly, so a different capitalization counts as a new account (see 14.1).
   - `findByEmail(email)`: throws 404 if missing.
   - `login(email, rawPassword)`: finds the user, then `passwordEncoder.matches`. Wrong password throws 401. **Returns the user; no token is issued.**
 - **Controller** `UserController` at `/api/users`:
@@ -518,7 +519,7 @@ Foreign keys pointing at `users` have **no cascade**. There is no endpoint to de
   - `getRemainingBalance(budgetId)`: see section 9.
   - `getIncome(budgetId, asOf)`: 404 if the budget does not exist. Adds up `getReceivedCents` and `getExpectedCents` for every income source on the budget, through `IncomeSourceService` (not the repository). Returns a `BudgetIncomeResponse`.
 - **Controller** `BudgetController` at `/api/budgets`:
-  - `POST /api/budgets` with `CreateBudgetRequest(title, ownerId)`. `title` is `@NotBlank`. `ownerId` has no `@NotNull`, so a missing owner reaches the database and returns 500.
+  - `POST /api/budgets` with `CreateBudgetRequest(title, ownerId)`. `title` is `@NotBlank` and `ownerId` is `@NotNull`, so a missing value returns 400. An `ownerId` that does not match a user still reaches the database and returns 500.
   - `GET /api/budgets?userId=...`
   - `DELETE /api/budgets/{id}`
   - `GET /api/budgets/{id}/total`
@@ -637,7 +638,7 @@ Base URL: `http://localhost:8080` (or wherever the container runs). All bodies a
 
 | Method | Path | Body / params | Returns | Confirmed working |
 | --- | --- | --- | --- | --- |
-| POST | `/api/users` | `firstName, lastName, email, password, birthday?` | `UserResponse` | yes |
+| POST | `/api/users` | `firstName, lastName, email, password, birthday?` | `UserResponse`, or 409 if the email already has an account | yes |
 | POST | `/api/users/login` | `email, password` | `UserResponse` or 401/404 | yes |
 | GET | `/api/users/by-email?email=` | query param | `UserResponse` or 404 | |
 | POST | `/api/budgets` | `title, ownerId` | `BudgetResponse` | yes |
@@ -1003,6 +1004,7 @@ Private helpers:
   - `loadExpenses(categoryId, from?, to?)` → `List<Expense>`. Adds `from` and/or `to` to the query string only when given.
 - That is **one request per budget, category, and income source**, run one after another. Fine for a household, slow at scale.
 - `_userIdFor(name, email)` uses the public `by-email` endpoint. A 404 becomes "No account found for X. They need to sign up first."
+- `createUser` catches a 409 from `POST /api/users` and rethrows it as "An account with X already exists." This one is visible, because signup errors show on the account screen.
 - `addMember` catches a 409 from `POST /api/budgetmembers` and rethrows it as "That person is already on this budget." Other errors pass through unchanged. The message only reaches the user once `ledger.error` is shown outside the account screen (see 14.2).
 - `_expense(row)` turns one transaction JSON row into an `Expense` (label from `merchant`, falling back to `description`). Used by `loadExpenses`.
 - `_object(method, path, body)` handles single object requests. It supports **`GET`, `POST`, `PUT`, and `DELETE`**. Anything else throws `Unsupported $method`. An empty response body (like a delete's) returns an empty map.
@@ -1287,7 +1289,7 @@ Planned but not done:
 - **No way to change a member's role, transfer ownership, or leave a budget.** There is no endpoint for any of the three.
 - **No invite or accept step.** Adding a member is instant, and the invited person cannot decline.
 - **`GET /api/users/by-email` leaks user details.** Anyone who knows someone's email can get their ID and name. Remove or restrict once auth exists.
-- **Duplicate signup email returns 500.** Should return 409.
+- **Emails are case sensitive.** `Ada@example.com` and `ada@example.com` can be two accounts, and login needs the exact capitalization used at signup. Fix: lowercase emails on signup and login, plus a V9 migration (for example a unique index on `lower(email)`).
 - **No global error handler** (`@ControllerAdvice`), so failures that are not explicit `ResponseStatusException`s surface as a generic 500. (`ResponseStatusException` messages are now included in error bodies; see 5.7.)
 - **Creating a category for a budget that does not exist returns 500** (foreign key). Same for every create endpoint with a bad parent ID. Easiest to fix everywhere at once, probably alongside role checks, which will look up the budget anyway.
 - **No length validation** on names and titles, so a value over 100 characters fails at the database with 500.
@@ -1299,7 +1301,7 @@ Planned but not done:
 - **Every paycheck is assumed to be the same amount.** Scheduled income is calculated from the schedule, so overtime, a bonus, or a smaller first check cannot be recorded for one payday. If that is needed later, the fix is a scheduler that writes an income entry on each payday (what `autoGenerate` was originally for) so single paychecks can be edited.
 - **`autoGenerate` is now just a "scheduled paycheck" flag**; nothing runs on a schedule. It is not editable through PUT, so a paycheck cannot be turned into manual income (or back) without deleting and re-adding it.
 - **POST and PUT for income sources answer with the server's today**, not the client's. The client reloads the list with `asOf` right after, so this does not show, but other clients should not rely on those three values.
-- **Few automated tests.** The backend tests are `IncomeSourcePayDatesTest` (8 tests, pay date math only) and `BudgetMemberServiceTest` (6 tests, every branch of `createBudgetMember` with Mockito mocks). JUnit and Testcontainers are ready in the pom. `CategoryService.getPeriodContaining` is pure date math and the next best candidate (January 31 monthly anchor, biweekly parity, week boundaries, a date before the anchor). Testing it the same way needs no database: create the service with `null` repositories.
+- **Few automated tests.** The backend tests are `IncomeSourcePayDatesTest` (8 tests, pay date math only), `BudgetMemberServiceTest` (6 tests, every branch of `createBudgetMember` with Mockito mocks), and `UserServiceTest` (3 tests, signup duplicates and hashing). JUnit and Testcontainers are ready in the pom. `CategoryService.getPeriodContaining` is pure date math and the next best candidate (January 31 monthly anchor, biweekly parity, week boundaries, a date before the anchor). Testing it the same way needs no database: create the service with `null` repositories.
 - **Style cleanup:** a Stream in `IncomeEntryController` (the one in `IncomeSourceController` was replaced with a for loop); `BudgetMemberView` should become its own response DTO; `IncomeSourceController` and `BudgetController` use wildcard `org.springframework.web.bind.annotation.*` imports while the others list imports one by one.
 
 ### 14.2 Frontend
@@ -1328,7 +1330,7 @@ Planned but not done:
 ### 14.3 Deployment
 
 - **`API_BASE` is baked in as `http://localhost:8080`** in the Docker web build. A visitor opening `budget.spencerplus.com` would have their browser call `localhost:8080` on their own machine. Since the web app and API are served from the same origin, the web build should use a relative base (the page's own origin) instead. An empty value cannot be used for this because empty means local only mode, so this needs a small change in `api.dart`.
-- **`TZ` has no fallback** in `docker-compose.yml`; a `.env` without it runs in UTC. Either keep `TZ=` in `.env.example` or change the line to `TZ: ${TZ:-America/New_York}`.
+- **`TZ` has no fallback** in `docker-compose.yml`; a `.env` without it runs in UTC. `.env.example` already includes `TZ=America/New_York`, so new setups get it; changing the line to `TZ: ${TZ:-America/New_York}` would cover a `.env` written by hand.
 - **Port 5432 is published** to the host. Remove for production.
 - **No published image or release compose file yet.**
 - **`target/` and Flutter's generated `ephemeral/` files** are build output and should be gitignored if they are committed.
@@ -1368,15 +1370,16 @@ Planned but not done:
   - The same pay date math in Dart, for local only mode and when the server is unreachable
   - `scripts/seed_test_data.sql` for manual testing
 - **Budget member checks** (November 5, 2026): adding a member returns 400 for role `OWNER`, 404 for a missing budget or user, and 409 for a duplicate (including two requests at once) instead of 500; error bodies include the message; `BudgetMemberServiceTest`; the client turns the 409 into a friendly message
+- **Duplicate signup email** (November 5, 2026): 409 instead of 500, checked before hashing, race covered; `UserServiceTest`; the account screen shows "An account with X already exists."
 
 **Next**
 
-1. Small history follow ups: allow deleting expenses from `PeriodDetailScreen`; add a `TZ=` line to `.env.example`; optionally shorten `periodLabel`.
+1. Small history follow ups: allow deleting expenses from `PeriodDetailScreen`; optionally shorten `periodLabel`.
 2. Merge `income-pay-dates` into `main` (fast forward) after the full test. Then unit tests for `getPeriodContaining` (cheap and high value).
 3. Finish the glass card pass on the Income tab (and decide on the Overview).
 4. Update endpoints for budgets, transactions, members, and income entries (income sources already have PUT). (Categories stay non-editable.)
 4b. Decide what the Overview counts: shared view only budgets, and whether future dated expenses count before their date.
-5. Error handling: show `ledger.error` on every screen, not only sign in (needed before the member 409 message is visible). Apply the member pattern (check first, 404/409) to signup's duplicate email and to bad parent IDs on the other create endpoints, or add a `@ControllerAdvice`.
+5. Error handling: show `ledger.error` on every screen, not only sign in (needed before the member 409 message is visible). Apply the member pattern (check first, 404/409) to bad parent IDs on the other create endpoints, or add a `@ControllerAdvice`.
 6. Real authentication with JWT, and role checks (owner manages members and deletes the budget, editor adds, changes, and deletes items, viewer reads only). Then remove or lock down `by-email`.
 7. Sign in to an existing server account from a fresh device.
 8. Budget level history: a date stepper on the budget screen ("< Aug 2026 >") where each card shows the period that contained that date. Needs an optional `asOf` date on `GET /api/categories/budget/{id}`; `getPeriodContaining` already accepts any date. Also decide what a meaningful budget level total is.
@@ -1453,6 +1456,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -X PUT http://localhost:8080/api/income
 # Tests
 mvn test                                      # every JUnit test; needs Maven in the terminal (sudo dnf install maven); or Run As → JUnit Test in Eclipse
 mvn test -Dtest=BudgetMemberServiceTest       # one class
+mvn test -Dtest=UserServiceTest
 
 # Fire 5 identical requests at once (race test for duplicate members; expect one 200 and four 409s)
 for i in 1 2 3 4 5; do
@@ -1504,16 +1508,18 @@ done
 
 ## 17. Change log
 
-**November 5, 2026: budget member checks**
+**November 5, 2026: budget member and signup checks**
 
-Adding a user who was already on a budget returned 500 from the UNIQUE constraint. It now returns a clean error, and so do the other bad inputs to that endpoint.
+Adding a user who was already on a budget, or signing up with an email that already had an account, returned 500 from a UNIQUE constraint. Both now return clean errors, and so do the other bad inputs to the member endpoint.
 
 - Backend, budgetmembers: `BudgetMemberService` gained `BudgetRepository` as a dependency. `createBudgetMember` now rejects role `OWNER` (400), a missing budget or user (404), and an existing membership (409, through `findByBudgetIdAndUserId`), in that order. It saves with `saveAndFlush` and turns a `DataIntegrityViolationException` into the same 409, so two identical requests at once no longer give a 500. The controller did not change.
 - Backend, config: `server.error.include-message: always` in `application.yml`, so every `ResponseStatusException` message appears in the error body's `message` field.
 - Backend, tests: new `BudgetMemberServiceTest` (6 tests: OWNER role, missing budget, missing user, existing member, constraint violation on save, valid member). Uses Mockito, no database.
 - Client, api: `addMember` turns a 409 into "That person is already on this budget." It is not visible yet outside the account screen (14.2).
+- Backend, user: `UserService.createUser` checks `findByEmail` before hashing and throws 409 "An account with this email already exists"; it saves with `saveAndFlush` and turns a `DataIntegrityViolationException` into the same 409. `java.time.LocalDate` is now a normal import. New `UserServiceTest` (3 tests: existing email with no hashing or save, constraint violation on save, new user saved with a hashed password).
+- Client, api: `createUser` turns a 409 into "An account with X already exists.", shown on the account screen.
 - Data note: budgets created before `createBudget` added the OWNER row have no owner membership, so the duplicate check cannot see the owner on them. Fixed on Josh's database by updating that row to `OWNER`; the query to find others is in section 16.
-- Tested with curl: valid member 200, duplicate 409, owner 409, role OWNER 400, random budget 404, random user 404, and five simultaneous identical requests gave one 200 and four 409s.
+- Tested with curl: valid member 200, duplicate 409, owner 409, role OWNER 400, random budget 404, random user 404, and five simultaneous identical requests gave one 200 and four 409s. Signup: first 200, same email again 409 with the message.
 
 **November 4, 2026: income paydays (branch `income-pay-dates`)**
 
