@@ -1267,8 +1267,11 @@ Planned but not done:
 
 ### 14.1 Backend
 
-- **No authentication or authorization.** All endpoints are open; login returns the user but no token. Roles are stored but never checked. Anyone can add anyone as `OWNER`, and anyone can delete any budget, category, transaction, member, or income record by ID. Plan: JWT (library already in the pom) plus role checks in the services.
-- **`GET /api/users/by-email` leaks user details** to anyone. Remove or restrict once auth exists.
+- **No authentication or authorization.** All endpoints are open; login returns the user but no token. Anyone can add anyone as `OWNER`, and anyone can delete any budget, category, transaction, member, or income record by ID. This is the root of the sharing problems below: with no logged in user on the request, the server has no idea who is asking, so it cannot check roles. Plan: JWT (library already in the pom) plus role checks in the services.
+- **Roles are stored but never enforced.** No service checks the caller's role, so a `VIEWER` can create categories, log transactions, delete the budget, or add members.
+- **No way to change a member's role, transfer ownership, or leave a budget.** There is no endpoint for any of the three.
+- **No invite or accept step.** Adding a member is instant, and the invited person cannot decline.
+- **`GET /api/users/by-email` leaks user details.** Anyone who knows someone's email can get their ID and name. Remove or restrict once auth exists.
 - **Duplicate member returns 500** (UNIQUE constraint). Should check `findByBudgetIdAndUserId` first and return 409.
 - **Duplicate signup email returns 500.** Should return 409.
 - **No global error handler** (`@ControllerAdvice`), so failures that are not explicit `ResponseStatusException`s surface as a generic 500. Error messages from `ResponseStatusException` are not included in the response body.
