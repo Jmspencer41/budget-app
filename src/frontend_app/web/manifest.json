@@ -1,11 +1,11 @@
 {
-    "name": "frontend_app",
-    "short_name": "frontend_app",
+    "name": "Budget Buddy",
+    "short_name": "Budget Buddy",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#070B14",
+    "theme_color": "#070B14",
+    "description": "A self-hosted household budget.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

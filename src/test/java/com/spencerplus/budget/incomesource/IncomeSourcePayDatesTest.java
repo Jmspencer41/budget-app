@@ -9,7 +9,7 @@ import com.spencerplus.budget.incomesource.IncomeSource.Frequency;
 
 class IncomeSourcePayDatesTest {
 
-	private final IncomeSourceService service = new IncomeSourceService(null, null); // pay date math never touches the database
+	private final IncomeSourceService service = new IncomeSourceService(null, null, null); // pay date math never touches the database
 
 	private IncomeSource source(Frequency frequency, long amountCents, String anchorDate, Integer secondPayDay) {
 		IncomeSource incomeSource = new IncomeSource();

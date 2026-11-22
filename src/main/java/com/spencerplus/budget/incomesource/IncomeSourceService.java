@@ -11,23 +11,27 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.incomeentry.IncomeEntryService;
 import com.spencerplus.budget.incomesource.IncomeSource.Frequency;
+import com.spencerplus.budget.config.AccessService;
 
 @Service
 public class IncomeSourceService {
 
 	private final IncomeSourceRepository incomeSourceRepository;
 	private final IncomeEntryService incomeEntryService;
+	private final AccessService accessService;
 	
-	public IncomeSourceService(IncomeSourceRepository incomeSourceRepository, IncomeEntryService incomeEntryService) {
+	public IncomeSourceService(IncomeSourceRepository incomeSourceRepository, IncomeEntryService incomeEntryService, AccessService accessService) {
 		this.incomeSourceRepository = incomeSourceRepository;
 		this.incomeEntryService = incomeEntryService;
+		this.accessService = accessService;
 	}
 	
 	public IncomeSource createIncomeSource(UUID userId, UUID budgetId, String name, long amountCents, Frequency frequency, boolean autoGenerate, LocalDate anchorDate, Integer secondPayDay) {
+		accessService.requireEditor(budgetId);
 		validateSchedule(frequency, anchorDate, secondPayDay); // 400 before anything is saved
 		
 		IncomeSource incomeSource = new IncomeSource();
-		incomeSource.setUserId(userId);
+		incomeSource.setUserId(accessService.currentUserId());
 		incomeSource.setBudgetId(budgetId);
 		incomeSource.setName(name);
 		incomeSource.setAmountCents(amountCents);
@@ -39,8 +43,7 @@ public class IncomeSourceService {
 	}
 	
 	public IncomeSource updateIncomeSource(UUID incomeSourceId, String name, long amountCents, Frequency frequency, LocalDate anchorDate, Integer secondPayDay) {
-		IncomeSource incomeSource = incomeSourceRepository.findById(incomeSourceId)
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Income source not found")); // 404 if it doesn't exist
+		IncomeSource incomeSource = accessService.requireIncomeEditor(incomeSourceId);
 		
 		validateSchedule(frequency, anchorDate, secondPayDay); // same rules as create
 		
@@ -53,13 +56,12 @@ public class IncomeSourceService {
 	}
 	
 	public void deleteIncomeSource(UUID incomeSourceId) {
-	    if (!incomeSourceRepository.existsById(incomeSourceId)) {
-	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Income source not found");
-	    }
-	    incomeSourceRepository.deleteById(incomeSourceId);
+		accessService.requireIncomeEditor(incomeSourceId);
+		incomeSourceRepository.deleteById(incomeSourceId);
 	}
 
 	public List<IncomeSource> listForBudget(UUID budgetId) {
+		accessService.requireMember(budgetId);
 		return incomeSourceRepository.findByBudgetId(budgetId);
 	}
 	

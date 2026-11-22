@@ -56,8 +56,10 @@ class OverviewScreen extends StatelessWidget {
           ),
         ),
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+          child: GlassCard(
+            tint: AppColors.moss,
+            child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
             child: Column(
               children: [
                 _summaryRow('Income so far', income, AppColors.moss),
@@ -76,6 +78,7 @@ class OverviewScreen extends StatelessWidget {
               ],
             ),
           ),
+          ),
         ),
         const SliverToBoxAdapter(
           child: Padding(padding: EdgeInsets.fromLTRB(20, 16, 20, 0), child: Hairline()),
@@ -87,8 +90,10 @@ class OverviewScreen extends StatelessWidget {
           itemCount: overLimit.length,
           itemBuilder: (context, index) {
             final category = overLimit[index];
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+            return GlassCard(
+              tint: AppColors.rust,
+              child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Row(
                 children: [
                   Expanded(child: Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600))),
@@ -98,6 +103,7 @@ class OverviewScreen extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
             );
           },
         ),
@@ -108,8 +114,10 @@ class OverviewScreen extends StatelessWidget {
           itemCount: spending.length,
           itemBuilder: (context, index) {
             final line = spending[index];
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+            return GlassCard(
+              tint: AppColors.gold,
+              child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Row(
                 children: [
                   Expanded(
@@ -127,6 +135,7 @@ class OverviewScreen extends StatelessWidget {
                   Text(money(line.expense.amount), style: ledgerNumber(size: 14)),
                 ],
               ),
+            ),
             );
           },
         ),
@@ -144,8 +153,10 @@ class OverviewScreen extends StatelessWidget {
                 ? '${source.frequency?.label ?? 'Monthly'} · ${money(source.receivedDuring(now))} so far of ${money(source.expectedDuring(now))}'
                 : 'Manual · ${money(source.receivedDuring(now))} logged this month';
             final shown = source.kind.isAutomatic ? source.paycheckAmount : source.totalLogged;
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+            return GlassCard(
+              tint: AppColors.moss,
+              child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Row(
                 children: [
                   Expanded(
@@ -163,6 +174,7 @@ class OverviewScreen extends StatelessWidget {
                   Text(money(shown), style: ledgerNumber(size: 14, color: AppColors.moss)),
                 ],
               ),
+            ),
             );
           },
         ),

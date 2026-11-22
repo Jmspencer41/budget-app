@@ -1284,19 +1284,19 @@ Planned but not done:
 
 ### 14.1 Backend
 
-- **No authentication or authorization.** All endpoints are open; login returns the user but no token. Anyone can add anyone to any budget as an editor or viewer, and anyone can delete any budget, category, transaction, member, or income record by ID. This is the root of the sharing problems below: with no logged in user on the request, the server has no idea who is asking, so it cannot check roles. Plan: JWT (library already in the pom) plus role checks in the services.
-- **Roles are stored but never enforced.** No service checks the caller's role, so a `VIEWER` can create categories, log transactions, delete the budget, or add members.
+- **Authentication is a bearer token.** Signup and login return `AuthResponse` with a JWT. Every other `/api/**` route requires `Authorization: Bearer`. A missing or bad token is 401. `AccessService` checks membership: viewers can read, editors can change categories, expenses, and income, and only the owner can delete the budget, rename it, or add and remove members. A dev secret is in `application.yml`; set `JWT_SECRET` before exposing the API.
+- **No way to change a member's role, transfer ownership, or leave a budget.** There is no endpoint for any of the three.
 - **No way to change a member's role, transfer ownership, or leave a budget.** There is no endpoint for any of the three.
 - **No invite or accept step.** Adding a member is instant, and the invited person cannot decline.
-- **`GET /api/users/by-email` leaks user details.** Anyone who knows someone's email can get their ID and name. Remove or restrict once auth exists.
+- **`GET /api/users/by-email` requires a token** and returns only `id`, `firstName`, and `lastName`. The app uses the id when adding a member.
 - **Emails are case sensitive.** `Ada@example.com` and `ada@example.com` can be two accounts, and login needs the exact capitalization used at signup. Fix: lowercase emails on signup and login, plus a V9 migration (for example a unique index on `lower(email)`).
-- **No global error handler** (`@ControllerAdvice`), so failures that are not explicit `ResponseStatusException`s surface as a generic 500. (`ResponseStatusException` messages are now included in error bodies; see 5.7.)
+- **`ApiExceptionHandler`** turns validation failures into 400 and database constraint failures into 409. `ResponseStatusException` messages are still included in error bodies.
 - **Creating a category for a budget that does not exist returns 500** (foreign key). Same for every create endpoint with a bad parent ID. Easiest to fix everywhere at once, probably alongside role checks, which will look up the budget anyway.
-- **No length validation** on names and titles, so a value over 100 characters fails at the database with 500.
-- **Only one update endpoint** (`PUT /api/incomesources/{id}`). Categories are intentionally not editable; budgets, transactions, members, and income entries could use updates.
-- **Budget total and remaining are not meaningful** (they mix frequencies and goals; see 9.3).
+- **Names and titles are limited** to the column sizes (`@Size`, 100 or 255). A longer value is 400.
+- **Budget titles can be renamed** with `PUT /api/budgets/{id}`. Income sources already have `PUT`. Categories stay fixed on purpose. Transactions, members, and income entries still have no update route.
+- **Budget total and remaining skip goals.** They add the recurring limits only.
 - **History runs one query per period**, and the category list computes each category's period separately. Fine at this size.
-- **No membership checks** when logging or deleting transactions or income.
+- **Membership is checked** before creating or deleting transactions and income. The saved user id is the signed-in user.
 - **No check on future transaction dates.**
 - **Every paycheck is assumed to be the same amount.** Scheduled income is calculated from the schedule, so overtime, a bonus, or a smaller first check cannot be recorded for one payday. If that is needed later, the fix is a scheduler that writes an income entry on each payday (what `autoGenerate` was originally for) so single paychecks can be edited.
 - **`autoGenerate` is now just a "scheduled paycheck" flag**; nothing runs on a schedule. It is not editable through PUT, so a paycheck cannot be turned into manual income (or back) without deleting and re-adding it.
@@ -1308,24 +1308,23 @@ Planned but not done:
 
 - **Expenses from past periods cannot be deleted in the UI.** The category page only lists the current period, and `PeriodDetailScreen` is read only. A wrongly dated expense has to be removed with `psql` or curl. Adding a **×** to period detail rows is a small change.
 - **A future dated expense** (the expense dialog allows dates up to 2100) does not show in the current period until its period arrives, which can look like it disappeared.
-- **API errors are invisible outside the account screen.** `ledger.error` is only displayed on `AccountScreen`, so a failed add or delete on any other screen (for example a 400 from the category rules, a 409 from removing the owner, or the new "That person is already on this budget." message) fails silently.
-- **No way to sign in to an existing server account on a new device.** `AccountScreen` only offers Sign in when an account is already saved on the device. On a fresh browser it only shows Create account, and creating with an existing email fails on the server.
-- **The password is stored in plain text on the device**, and signing out does not remove it.
-- **No re-authentication on launch**: if `signedIn` was saved as true, the app loads that user's data from the API using the cached ID.
-- **Create budget dialog's extra members are dropped in remote mode**; only the title is sent.
+- **API errors show on the home screen** in a banner, and on the account screen.
+- **A fresh device can sign in.** When the app is talking to the API and no account is saved, the account screen has "Already have an account? Sign in".
+- **Remote sessions store the token, not the password.** Signing out clears the token. A 401 on launch signs the user out.
+- **Extra people on a new budget are saved** when each one has an email. The budget is created, then each person is added.
 - **The income dialog edits the paycheck object before the server answers.** If the PUT fails (for example a 400), the row shows the new values until the next refresh, and the error is invisible outside the account screen.
 - **The Overview includes every budget the user belongs to**, including view only ones. With the test data, Josh's Overview counts Abigail's paycheck and hobby spending from Abigail Personal, where he is only a viewer. Needs a decision: only owner and editor budgets, or a budget filter.
 - **Overview Spent and Income use different cutoffs.** Income so far stops at today; Spent counts every expense dated in the month, including future dated ones, so a future expense lowers "Left" early.
 - **Overview Spent is by calendar month** even for weekly or yearly categories (those are only judged on their own periods in "Over the limit").
-- **Many sequential requests** on every load and after every change (one per budget, category, and income source). Every category's **entire** transaction history is loaded, even though cards only need the current period. The category page also reruns its Past periods request on every ledger change.
+- **Many sequential requests** on every load and after every change (one per budget, category, and income source). Category cards now request only the current period. The category page still reruns its Past periods request on every ledger change.
 - **The budget level totals mix period lengths**: "Spent against limits" adds a weekly category's week to a monthly category's month. Rough, not wrong, but not a meaningful single number.
 - **Category periods do not exist in local only mode** (the server computes them). Income does work there (the client has its own payday math).
 - **`BudgetCategory.periodLabel` duplicates `periodRange`** in `format.dart`. Optional cleanup: `String? get periodLabel => hasPeriod ? periodRange(periodStart!, periodEnd!) : null;`.
-- **After a database wipe**, clear the browser's site data or the app keeps a stale account.
-- **Web branding is half done**: the favicon and PWA icons are the Spencer+ logo, but the tab title, manifest name, description, and theme color are still Flutter template values (see 10.2).
-- **Glass card styling is partial**: budgets, categories, people, and period rows use `GlassCard`; the Income tab, the budget detail's income rows, and the Overview are still flat rows with hairlines. The income rows now have two subtitle lines.
-- **Android:** package ID is still `com.example.frontend_app`; no `INTERNET` permission in the main manifest; cleartext HTTP blocked on release builds; default launcher icon.
-- **No remote mode tests.** The only Dart tests are the two widget tests and `pay_dates_test.dart`.
+- **A stale token signs the user out.** A 401 during launch clears the saved session.
+- **Web name, description, and theme color** are Budget Buddy and `#070B14`.
+- **Glass cards** are on the Income tab and the Overview as well as budgets, categories, people, and period rows.
+- **Android** application id is `com.spencerplus.budget`. The main manifest allows internet and cleartext HTTP, and the launcher icon is the Spencer+ logo. The Kotlin package namespace is still `com.example.frontend_app`.
+- **No Flutter tests that talk to the API.** Dart tests cover widgets, pay dates, and that a remote account is saved without a password. Java tests cover members, pay dates, users, and category periods.
 
 ### 14.3 Deployment
 
@@ -1507,6 +1506,14 @@ done
 ---
 
 ## 17. Change log
+
+**November 22, 2026: sign-in token and the open issue list**
+
+The API now requires a bearer token except for signup and login. The Flutter app stores that token instead of the password, asks for it again on a fresh device, and shows API errors on the home screen.
+
+- Backend: `JwtService`, `JwtAuthFilter`, and `AccessService`. Signup and login return `AuthResponse`. `GET /api/users/by-email` returns `UserLookupResponse`. `PUT /api/budgets/{id}` renames a budget. `@Size` on the request records. `ApiExceptionHandler` maps validation to 400 and constraint failures to 409. Budget totals skip `GOAL` categories. `BudgetMemberView` is its own file.
+- Client: remote sessions persist `token` and omit the password. Launch stays signed in only when the token still works (401 signs out). The account screen can switch to sign-in when no account is saved. Creating a budget also adds the extra people who have an email. Category loads request the current period. Income and overview rows use `GlassCard`. Web title and manifest say Budget Buddy. Android application id is `com.spencerplus.budget`, with internet permission and cleartext HTTP for a home server.
+- Tests: `CategoryPeriodTest` (3) and `account_session_test.dart`. Curl against a fresh database: missing token 401, duplicate email 409, over-long name 400, goal excluded from the total, non-member 403, member added by the owner can read the budget.
 
 **November 5, 2026: budget member and signup checks**
 

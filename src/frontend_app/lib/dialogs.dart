@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'api.dart';
 import 'format.dart';
 import 'ledger.dart';
 import 'models.dart';
@@ -24,6 +25,7 @@ class _CreateBudgetDialog extends StatefulWidget {
 class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
   final _nameController = TextEditingController();
   final _memberController = TextEditingController();
+  final _emailController = TextEditingController();
   final _members = <Member>[];
   BudgetRole _role = BudgetRole.editor;
   String? _error;
@@ -32,12 +34,18 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
   void dispose() {
     _nameController.dispose();
     _memberController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
   void _addMember() {
     final name = _memberController.text.trim();
+    final email = _emailController.text.trim();
     if (name.isEmpty) return;
+    if (apiBaseUrl.isNotEmpty && !email.contains('@')) {
+      setState(() => _error = 'Enter the email for their account.');
+      return;
+    }
     final taken = name.toLowerCase() == widget.ownerName.toLowerCase() ||
         _members.any((member) => member.name.toLowerCase() == name.toLowerCase());
     if (taken) {
@@ -46,8 +54,9 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
     }
     setState(() {
       _error = null;
-      _members.add(Member(name, _role));
+      _members.add(Member(name, _role, email: email.isEmpty ? null : email));
       _memberController.clear();
+      _emailController.clear();
     });
   }
 
@@ -84,6 +93,17 @@ class _CreateBudgetDialogState extends State<_CreateBudgetDialog> {
                     onSubmitted: (_) => _addMember(),
                   ),
                 ),
+                if (apiBaseUrl.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      key: const Key('budget-member-email'),
+                      controller: _emailController,
+                      decoration: const InputDecoration(labelText: 'Email'),
+                      onSubmitted: (_) => _addMember(),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 DropdownButton<BudgetRole>(
                   value: _role,

@@ -12,6 +12,8 @@ import com.spencerplus.budget.category.CategoryRepository;
 import com.spencerplus.budget.category.CategoryService;
 import com.spencerplus.budget.incomesource.IncomeSource;
 import com.spencerplus.budget.incomesource.IncomeSourceService;
+import com.spencerplus.budget.category.Category.CategoryType;
+import com.spencerplus.budget.config.AccessService;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -25,22 +27,26 @@ public class BudgetService {
 	private final CategoryService categoryService;
 	private final BudgetMemberRepository budgetMemberRepository;
 	private final IncomeSourceService incomeSourceService;
+	private final AccessService accessService;
 	
 	public BudgetService(
 			BudgetRepository budgetRepository,
 			CategoryRepository categoryRepository,
 			CategoryService categoryService,
 			BudgetMemberRepository budgetMemberRepository,
-			IncomeSourceService incomeSourceService) {
+			IncomeSourceService incomeSourceService,
+			AccessService accessService) {
 		this.budgetRepository = budgetRepository;
 		this.categoryRepository = categoryRepository;
 		this.categoryService = categoryService;
 		this.budgetMemberRepository = budgetMemberRepository;
 		this.incomeSourceService = incomeSourceService;
+		this.accessService = accessService;
 	}
 	
 	@Transactional
 	public Budget createBudget(String title, UUID ownerId) {
+		accessService.requireSelf(ownerId);
 		Budget budget = new Budget();
 		budget.setTitle(title);
 		budget.setOwnerId(ownerId);
@@ -55,6 +61,7 @@ public class BudgetService {
 	}
 
 	  public List<Budget> listForUser(UUID userId) {
+	      accessService.requireSelf(userId);
 	      List<UUID> budgetIds = new ArrayList<>();
 	      for (BudgetMember member : budgetMemberRepository.findByUserId(userId)) {
 	          budgetIds.add(member.getBudgetId());
@@ -66,14 +73,27 @@ public class BudgetService {
 	    if (!budgetRepository.existsById(budgetId)) {
 	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Budget not found");
 	    }
+	    accessService.requireOwner(budgetId);
 	    budgetRepository.deleteById(budgetId);
 	  }
+
+	public Budget updateBudget(UUID budgetId, String title) {
+		Budget budget = budgetRepository.findById(budgetId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Budget not found"));
+		accessService.requireOwner(budgetId);
+		budget.setTitle(title);
+		return budgetRepository.save(budget);
+	}
 	
 	public long getTotal(UUID budgetId) {
+		accessService.requireMember(budgetId);
 		List<Category> categories = categoryRepository.findByBudgetId(budgetId);
 		
 		long total = 0;
 		for (Category category : categories) {
+			if (category.getCategoryType() == CategoryType.GOAL) {
+				continue;
+			}
 			total += category.getAmountCents();
 		}
 		
@@ -81,12 +101,15 @@ public class BudgetService {
 	}
 	
 	public long getRemainingBalance(UUID budgetId) {
-		
+		accessService.requireMember(budgetId);
 		List<Category> categories = categoryRepository.findByBudgetId(budgetId);
 		
 		long totalRemaining = 0;
 		
 		for (Category category : categories) {
+			if (category.getCategoryType() == CategoryType.GOAL) {
+				continue;
+			}
 			totalRemaining += categoryService.getRemainingAmount(category.getId());
 		}
 		
@@ -94,6 +117,7 @@ public class BudgetService {
 	}
 	
 	public BudgetIncomeResponse getIncome(UUID budgetId, LocalDate asOf) { // every income source on this budget, added together
+		accessService.requireMember(budgetId);
 		if (!budgetRepository.existsById(budgetId)) {
 			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Budget not found");
 		}

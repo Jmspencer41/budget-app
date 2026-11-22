@@ -88,7 +88,27 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       body: SpaceBackground(
-        child: SafeArea(child: IndexedStack(index: _index, children: screens)),
+        child: SafeArea(
+          child: Column(
+            children: [
+              if (widget.ledger.error != null)
+                Material(
+                  color: AppColors.rust.withValues(alpha: 0.16),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: AppColors.rust, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(widget.ledger.error!, style: const TextStyle(color: AppColors.rust))),
+                      ],
+                    ),
+                  ),
+                ),
+              Expanded(child: IndexedStack(index: _index, children: screens)),
+            ],
+          ),
+        ),
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(

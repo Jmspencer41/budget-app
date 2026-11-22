@@ -17,8 +17,14 @@ class ApiException implements Exception {
 
 class BudgetApi {
   final String base;
+  String? token;
 
   BudgetApi([String? base]) : base = base ?? apiBaseUrl;
+
+  Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
 
   Future<Account> createUser(Account account) async {
     try {
@@ -45,8 +51,9 @@ class BudgetApi {
     return _account(body, password);
   }
 
-  Future<void> createBudget({required String ownerId, required String title}) async {
-    await _object('POST', '/api/budgets', {'title': title, 'ownerId': ownerId});
+  Future<String> createBudget({required String ownerId, required String title}) async {
+    final body = await _object('POST', '/api/budgets', {'title': title, 'ownerId': ownerId});
+    return body['id'] as String;
   }
 
   Future<void> addMember({
@@ -282,7 +289,9 @@ class BudgetApi {
     final categories = <BudgetCategory>[];
     for (final row in rows) {
       final id = row['id'] as String;
-      final expenses = await loadExpenses(id);
+      final periodStart = DateTime.tryParse(row['periodStart'] as String? ?? '');
+      final periodEnd = DateTime.tryParse(row['periodEnd'] as String? ?? '');
+      final expenses = await loadExpenses(id, from: periodStart, to: periodEnd);
       categories.add(
         BudgetCategory(
           id: id,
@@ -290,8 +299,8 @@ class BudgetApi {
           kind: row['categoryType'] == 'GOAL' ? CategoryKind.goal : CategoryKind.recurring,
           frequency: _categoryFrequency(row['frequency'] as String?),
           anchorDate: DateTime.tryParse(row['anchorDate'] as String? ?? ''),
-          periodStart: DateTime.tryParse(row['periodStart'] as String? ?? ''),
-          periodEnd: DateTime.tryParse(row['periodEnd'] as String? ?? ''),
+          periodStart: periodStart,
+          periodEnd: periodEnd,
           target: _dollars(row['amountCents']),
           expenses: expenses,
         ),
@@ -311,7 +320,7 @@ class BudgetApi {
   }
 
   Future<List<Map<String, dynamic>>> _list(String path) async {
-    final response = await http.get(Uri.parse('$base$path'));
+    final response = await http.get(Uri.parse('$base$path'), headers: _headers);
     _check(response, 'GET', path);
     final decoded = jsonDecode(response.body);
     if (decoded is! List) throw ApiException('Unexpected list from $path');
@@ -320,12 +329,11 @@ class BudgetApi {
 
   Future<Map<String, dynamic>> _object(String method, String path, [Object? body]) async {
     final uri = Uri.parse('$base$path');
-    final headers = {'Content-Type': 'application/json'};
     final response = switch (method) {
-      'GET' => await http.get(uri, headers: headers),
-      'POST' => await http.post(uri, headers: headers, body: jsonEncode(body)),
-      'PUT' => await http.put(uri, headers: headers, body: jsonEncode(body)),
-      'DELETE' => await http.delete(uri, headers: headers),
+      'GET' => await http.get(uri, headers: _headers),
+      'POST' => await http.post(uri, headers: _headers, body: jsonEncode(body)),
+      'PUT' => await http.put(uri, headers: _headers, body: jsonEncode(body)),
+      'DELETE' => await http.delete(uri, headers: _headers),
       _ => throw ApiException('Unsupported $method'),
     };
     _check(response, method, path);
@@ -336,9 +344,16 @@ class BudgetApi {
   }
 
   void _check(http.Response response, String method, String path) {
-    if (response.statusCode >= 400) {
-      throw ApiException('API $method $path failed (${response.statusCode})');
-    }
+    if (response.statusCode < 400) return;
+    var detail = '';
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map && decoded['message'] is String) {
+        detail = decoded['message'] as String;
+      }
+    } catch (_) {}
+    final status = '(${response.statusCode})';
+    throw ApiException(detail.isEmpty ? 'API $method $path failed $status' : '$detail $status');
   }
 
   Account _account(Map<String, dynamic> body, String password) {
@@ -348,6 +363,7 @@ class BudgetApi {
       lastName: body['lastName'] as String? ?? '',
       email: body['email'] as String? ?? '',
       password: password,
+      token: body['token'] as String?,
     );
   }
 }

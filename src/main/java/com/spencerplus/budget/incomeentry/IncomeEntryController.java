@@ -1,5 +1,6 @@
 package com.spencerplus.budget.incomeentry;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +24,11 @@ public class IncomeEntryController {
 	
 	@GetMapping("/source/{incomeSourceId}")
 	public List<IncomeEntryResponse> listForSource(@PathVariable UUID incomeSourceId) {
-		return incomeEntryService.listForSource(incomeSourceId).stream().map(IncomeEntryResponse::fromEntity).toList();
+		List<IncomeEntryResponse> responses = new ArrayList<>();
+		for (IncomeEntry entry : incomeEntryService.listForSource(incomeSourceId)) {
+			responses.add(IncomeEntryResponse.fromEntity(entry));
+		}
+		return responses;
 	}
 
 	@PostMapping

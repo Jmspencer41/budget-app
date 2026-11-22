@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.category.Category.CategoryType;
 import com.spencerplus.budget.category.Category.Frequency;
+import com.spencerplus.budget.config.AccessService;
 import com.spencerplus.budget.transaction.Transaction;
 import com.spencerplus.budget.transaction.TransactionRepository;
 import java.time.LocalDate;
@@ -20,13 +21,16 @@ public class CategoryService {
 	
 	private final CategoryRepository categoryRepository;
 	private final TransactionRepository transactionRepository;
+	private final AccessService accessService;
 	
-	public CategoryService(CategoryRepository categoryRepository, TransactionRepository transactionRepository) {
+	public CategoryService(CategoryRepository categoryRepository, TransactionRepository transactionRepository, AccessService accessService) {
 		this.categoryRepository = categoryRepository;
 		this.transactionRepository = transactionRepository;
+		this.accessService = accessService;
 	}
 	
 	public Category createCategory(UUID budgetId, String name, CategoryType categoryType, Frequency frequency, long amountCents, LocalDate anchorDate) {
+		accessService.requireEditor(budgetId);
 		if (categoryType == CategoryType.RECURRING) {
 			if (frequency == null || anchorDate == null) {
 				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Recurring categories require a frequency and anchor date");
@@ -48,15 +52,12 @@ public class CategoryService {
 	}
 	
 	public void deleteCategory(UUID categoryId) {
-		if (!categoryRepository.existsById(categoryId)) {
-			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found");
-		}
+		accessService.requireCategoryEditor(categoryId);
 		categoryRepository.deleteById(categoryId);
 	}
 	
 	public Category getCategory(UUID categoryId) { 
-		return categoryRepository.findById(categoryId)
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found")); // missing category becomes a 404
+		return accessService.requireCategoryMember(categoryId);
 	}
 	
 	public long getRemainingAmount(UUID categoryId) {
@@ -156,6 +157,7 @@ public class CategoryService {
 	}
 	
 	public List<Category> getCategoriesForBudget(UUID budgetId) {
+		accessService.requireMember(budgetId);
 		return categoryRepository.findByBudgetId(budgetId);
 	}
 

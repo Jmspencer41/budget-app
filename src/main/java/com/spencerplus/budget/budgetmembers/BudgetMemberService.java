@@ -11,6 +11,7 @@ import com.spencerplus.budget.budget.BudgetRepository;
 import com.spencerplus.budget.budgetmembers.BudgetMember.Role;
 import com.spencerplus.budget.user.User;
 import com.spencerplus.budget.user.UserRepository;
+import com.spencerplus.budget.config.AccessService;
 
 @Service
 public class BudgetMemberService {
@@ -18,14 +19,17 @@ public class BudgetMemberService {
 	private final BudgetMemberRepository budgetMemberRepository;
 	private final UserRepository userRepository;
 	private final BudgetRepository budgetRepository;
+	private final AccessService accessService;
 	
-	public BudgetMemberService(BudgetMemberRepository budgetMemberRepository, UserRepository userRepository, BudgetRepository budgetRepository) {
+	public BudgetMemberService(BudgetMemberRepository budgetMemberRepository, UserRepository userRepository, BudgetRepository budgetRepository, AccessService accessService) {
 		this.budgetMemberRepository = budgetMemberRepository;
 		this.userRepository = userRepository;
 		this.budgetRepository = budgetRepository;
+		this.accessService = accessService;
 	}
 	
 	public BudgetMember createBudgetMember(UUID budgetId, UUID userId, Role role) {
+		accessService.requireOwner(budgetId);
 		if (role == Role.OWNER) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner is set when the budget is created and cannot be added as a member");
 		}
@@ -53,6 +57,7 @@ public class BudgetMemberService {
 	public void deleteBudgetMember(UUID memberId) {
 	    BudgetMember member = budgetMemberRepository.findById(memberId)
 	        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found"));
+	    accessService.requireOwner(member.getBudgetId());
 	    if (member.getRole() == Role.OWNER) {
 	        throw new ResponseStatusException(HttpStatus.CONFLICT, "The owner cannot be removed from a budget");
 	    }
@@ -60,6 +65,7 @@ public class BudgetMemberService {
 	}
 
 	public List<BudgetMemberView> listForBudget(UUID budgetId) {
+		accessService.requireMember(budgetId);
 		List<BudgetMemberView> views = new ArrayList<>();
 		for (BudgetMember member : budgetMemberRepository.findByBudgetId(budgetId)) {
 			User user = userRepository.findById(member.getUserId()).orElse(null);
@@ -69,6 +75,4 @@ public class BudgetMemberService {
 		}
 		return views;
 	}
-
-	public record BudgetMemberView(UUID id, UUID budgetId, UUID userId, String name, Role role) {}
 }

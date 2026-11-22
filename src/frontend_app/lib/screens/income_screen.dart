@@ -130,10 +130,11 @@ class IncomeRow extends StatelessWidget {
         : '${money(source.receivedDuring(now))} logged this month';
     final amount = isPaycheck ? source.paycheckAmount : source.totalLogged;
 
-    return InkWell(
+    return GlassCard(
+      tint: AppColors.moss,
       onTap: () => _open(context),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
         child: Row(
           children: [
             Expanded(

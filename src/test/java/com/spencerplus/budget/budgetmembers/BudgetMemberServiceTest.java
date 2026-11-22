@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import com.spencerplus.budget.budget.BudgetRepository;
 import com.spencerplus.budget.budgetmembers.BudgetMember.Role;
+import com.spencerplus.budget.config.AccessService;
 import com.spencerplus.budget.user.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,6 +29,7 @@ class BudgetMemberServiceTest {
 	@Mock private BudgetMemberRepository budgetMemberRepository;
 	@Mock private UserRepository userRepository;
 	@Mock private BudgetRepository budgetRepository;
+	@Mock private AccessService accessService;
 
 	private BudgetMemberService service;
 	private final UUID budgetId = UUID.randomUUID();
@@ -35,7 +37,7 @@ class BudgetMemberServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BudgetMemberService(budgetMemberRepository, userRepository, budgetRepository);
+		service = new BudgetMemberService(budgetMemberRepository, userRepository, budgetRepository, accessService);
 	}
 
 	private HttpStatus statusOf(ResponseStatusException e) {

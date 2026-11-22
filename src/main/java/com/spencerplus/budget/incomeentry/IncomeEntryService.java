@@ -6,17 +6,21 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import com.spencerplus.budget.config.AccessService;
 
 @Service
 public class IncomeEntryService {
 	
 	private final IncomeEntryRepository incomeEntryRepository;
+	private final AccessService accessService;
 	
-	public IncomeEntryService(IncomeEntryRepository incomeEntryRepository) {
+	public IncomeEntryService(IncomeEntryRepository incomeEntryRepository, AccessService accessService) {
 		this.incomeEntryRepository = incomeEntryRepository;
+		this.accessService = accessService;
 	}
 	
 	public IncomeEntry createIncomeEntry(UUID incomeSourceId, long amountCents, LocalDate receivedDate) {
+		accessService.requireIncomeEditor(incomeSourceId);
 		
 		IncomeEntry incomeEntry = new IncomeEntry ();
 		incomeEntry.setIncomeSourceId(incomeSourceId);
@@ -27,13 +31,14 @@ public class IncomeEntryService {
 	}
 	
 	public void deleteIncomeEntry(UUID incomeEntryId) {
-	    if (!incomeEntryRepository.existsById(incomeEntryId)) {
-	        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Income entry not found");
-	    }
-	    incomeEntryRepository.deleteById(incomeEntryId);
+		IncomeEntry entry = incomeEntryRepository.findById(incomeEntryId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Income entry not found"));
+		accessService.requireIncomeEditor(entry.getIncomeSourceId());
+		incomeEntryRepository.deleteById(incomeEntryId);
 	}
 
 	public List<IncomeEntry> listForSource(UUID incomeSourceId) {
+		accessService.requireIncomeMember(incomeSourceId);
 		return incomeEntryRepository.findByIncomeSourceId(incomeSourceId);
 	}
 	

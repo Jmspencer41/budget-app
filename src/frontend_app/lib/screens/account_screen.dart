@@ -20,8 +20,10 @@ class _AccountScreenState extends State<AccountScreen> {
   late final TextEditingController _email;
   late final TextEditingController _password;
   String? _error;
+  bool _signingIn = false;
 
   bool get _hasAccount => widget.ledger.account != null;
+  bool get _showSignIn => _hasAccount || _signingIn;
 
   @override
   void initState() {
@@ -31,11 +33,16 @@ class _AccountScreenState extends State<AccountScreen> {
     _lastName = TextEditingController();
     _email = TextEditingController(text: account?.email ?? '');
     _password = TextEditingController();
+    _signingIn = _hasAccount;
     widget.ledger.addListener(_onLedger);
   }
 
   void _onLedger() {
-    if (mounted) setState(() => _error = widget.ledger.error);
+    if (!mounted) return;
+    setState(() {
+      _error = widget.ledger.error;
+      if (_error != null && _error!.contains('already exists')) _signingIn = true;
+    });
   }
 
   @override
@@ -49,7 +56,7 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   void _submit() {
-    if (_hasAccount) {
+    if (_showSignIn) {
       final ok = widget.ledger.signIn(_email.text, _password.text);
       if (!ok) setState(() => _error = 'That email or password does not match this device.');
       return;
@@ -76,7 +83,7 @@ class _AccountScreenState extends State<AccountScreen> {
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 32),
             children: [
               Text(
-                _hasAccount ? 'Sign in' : 'Create account',
+                _showSignIn ? 'Sign in' : 'Create account',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 8),
@@ -85,13 +92,13 @@ class _AccountScreenState extends State<AccountScreen> {
                     ? (_hasAccount
                         ? 'Sign in to the account saved on this device.'
                         : 'Budget Buddy keeps your budgets on this device. Create an account to start.')
-                    : (_hasAccount
+                    : (_showSignIn
                         ? 'Sign in to the account on your home server.'
                         : 'Create an account on your home server. Budgets are stored in the database, not only on this device.'),
                 style: const TextStyle(color: AppColors.inkFade),
               ),
               const SizedBox(height: 24),
-              if (!_hasAccount) ...[
+              if (!_showSignIn) ...[
                 TextField(
                   key: const Key('account-first-name'),
                   controller: _firstName,
@@ -127,8 +134,16 @@ class _AccountScreenState extends State<AccountScreen> {
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: _submit,
-                child: Text(_hasAccount ? 'Sign in' : 'Create account'),
+                child: Text(_showSignIn ? 'Sign in' : 'Create account'),
               ),
+              if (apiBaseUrl.isNotEmpty && !_hasAccount)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _signingIn = !_signingIn;
+                    _error = null;
+                  }),
+                  child: Text(_signingIn ? 'Need an account? Create one' : 'Already have an account? Sign in'),
+                ),
             ],
           ),
         ),

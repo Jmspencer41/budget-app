@@ -227,6 +227,7 @@ class Account {
   final String lastName;
   final String email;
   final String password;
+  final String? token;
 
   const Account({
     this.id,
@@ -234,6 +235,7 @@ class Account {
     required this.lastName,
     required this.email,
     required this.password,
+    this.token,
   });
 
   String get displayName => '$firstName $lastName'.trim();
@@ -243,7 +245,8 @@ class Account {
         'firstName': firstName,
         'lastName': lastName,
         'email': email,
-        'password': password,
+        if (password.isNotEmpty) 'password': password,
+        'token': token,
       };
 
   factory Account.fromJson(Map<String, dynamic> json) {
@@ -253,6 +256,7 @@ class Account {
       lastName: json['lastName'] as String? ?? '',
       email: json['email'] as String? ?? '',
       password: json['password'] as String? ?? '',
+      token: json['token'] as String?,
     );
   }
 }

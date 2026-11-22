@@ -57,12 +57,27 @@ class Ledger extends ChangeNotifier {
       account = null;
       signedIn = false;
     }
-    if (_remote && signedIn && account?.id != null) {
-      try {
-        await _refreshFromApi();
-      } catch (error, stack) {
-        FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
-        this.error = 'Could not reach the budget API.';
+    if (_remote) {
+      final token = account?.token;
+      if (!signedIn || token == null || token.isEmpty) {
+        signedIn = false;
+        _api.token = null;
+      } else {
+        _api.token = token;
+        try {
+          await _refreshFromApi();
+        } catch (error, stack) {
+          FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
+          if ('$error'.contains('401')) {
+            signedIn = false;
+            _api.token = null;
+            account = _withoutSecret(account, keepToken: false);
+            this.error = 'Sign in again. The saved session is no longer valid.';
+            _touch();
+          } else {
+            this.error = 'Could not reach the budget API.';
+          }
+        }
       }
     }
     loaded = true;
@@ -72,7 +87,9 @@ class Ledger extends ChangeNotifier {
   void createAccount(Account next) {
     if (_remote) {
       _remoteAction(() async {
-        account = await _api.createUser(next);
+        final created = await _api.createUser(next);
+        account = _withoutSecret(created);
+        _api.token = created.token;
         signedIn = true;
       });
       return;
@@ -85,7 +102,9 @@ class Ledger extends ChangeNotifier {
   bool signIn(String email, String password) {
     if (_remote) {
       _remoteAction(() async {
-        account = await _api.login(email, password);
+        final signed = await _api.login(email, password);
+        account = _withoutSecret(signed);
+        _api.token = signed.token;
         signedIn = true;
       });
       return true;
@@ -101,6 +120,10 @@ class Ledger extends ChangeNotifier {
 
   void signOut() {
     signedIn = false;
+    _api.token = null;
+    if (_remote) {
+      account = _withoutSecret(account, keepToken: false);
+    }
     _touch();
   }
 
@@ -112,7 +135,15 @@ class Ledger extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      _remoteAction(() => _api.createBudget(ownerId: ownerId, title: budget.name));
+      _remoteAction(() async {
+        final budgetId = await _api.createBudget(ownerId: ownerId, title: budget.name);
+        for (final member in budget.members) {
+          if (member.role == BudgetRole.owner) continue;
+          final email = member.email?.trim() ?? '';
+          if (email.isEmpty) continue;
+          await _api.addMember(budgetId: budgetId, name: member.name, email: email, role: member.role);
+        }
+      });
       return;
     }
     budgets.insert(0, budget);
@@ -386,6 +417,18 @@ class Ledger extends ChangeNotifier {
       await prefs.setString(storageKey, snapshot);
     });
   }
+}
+
+Account? _withoutSecret(Account? account, {bool keepToken = true}) {
+  if (account == null) return null;
+  return Account(
+    id: account.id,
+    firstName: account.firstName,
+    lastName: account.lastName,
+    email: account.email,
+    password: '',
+    token: keepToken ? account.token : null,
+  );
 }
 
 String newId() {
